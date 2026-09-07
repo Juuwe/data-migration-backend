@@ -1,0 +1,96 @@
+{{template "base" .}}
+
+{{define "content"}}
+<!-- Форма получила id для привязки кнопки -->
+<form id="filter-form" action="/grid" method="GET" class="filter-section">
+  <div class="filter-header">
+    <span class="filter-label">Время за Гб (сек)</span>
+    <span class="filter-value" id="range-value">
+      {{printf "%g" .Data.MinTime}} — {{printf "%g" .Data.MaxTime}} cек/Гб
+    </span>
+  </div>
+
+  <div class="range-slider-container">
+    <div class="range-track-bg"></div>
+    <div class="range-track-active" id="range-track"></div>
+    <input
+      type="range"
+      id="slider-min"
+      name="min_time"
+      min="0.01"
+      max="1.00"
+      step="0.01"
+      value="{{printf "%g" .Data.MinTime}}"
+      class="range-input"
+    >
+    <input
+      type="range"
+      id="slider-max"
+      name="max_time"
+      min="0.01"
+      max="1.00"
+      step="0.01"
+      value="{{printf "%g" .Data.MaxTime}}"
+      class="range-input"
+    >
+  </div>
+</form>
+
+<!-- Кнопка вынесена из формы для ровного позиционирования -->
+<button class="search-btn" type="submit" form="filter-form">Найти</button>
+
+<section class="cards-grid">
+  {{range .Data.Methods}}
+    {{template "service_card" .}}
+  {{else}}
+    <p>Методы миграции не найдены</p>
+  {{end}}
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script>
+  const sliderMin = document.getElementById('slider-min');
+  const sliderMax = document.getElementById('slider-max');
+  const rangeTrack = document.getElementById('range-track');
+  const rangeValue = document.getElementById('range-value');
+  const minGap = 0.05;
+
+  function formatNum(num) {
+    return parseFloat(num.toFixed(2)).toString();
+  }
+
+  function updateSlider(e) {
+    let minVal = parseFloat(sliderMin.value);
+    let maxVal = parseFloat(sliderMax.value);
+
+    if (maxVal - minVal < minGap) {
+      if (e && e.target === sliderMin) {
+        sliderMin.value = (maxVal - minGap).toFixed(2);
+        minVal = parseFloat(sliderMin.value);
+      } else {
+        sliderMax.value = (minVal + minGap).toFixed(2);
+        maxVal = parseFloat(sliderMax.value);
+      }
+    }
+
+    const minRatio = (minVal - parseFloat(sliderMin.min)) / (parseFloat(sliderMin.max) - parseFloat(sliderMin.min));
+    const maxRatio = (maxVal - parseFloat(sliderMax.min)) / (parseFloat(sliderMax.max) - parseFloat(sliderMax.min));
+
+    const offset = 19;
+    const availableWidth = 398 - offset * 2;
+
+    const leftPx = offset + minRatio * availableWidth;
+    const rightPx = offset + maxRatio * availableWidth;
+
+    rangeTrack.style.left = leftPx + 'px';
+    rangeTrack.style.width = (rightPx - leftPx) + 'px';
+
+    rangeValue.textContent = `${formatNum(minVal)} — ${formatNum(maxVal)} cек/Гб`;
+  }
+
+  sliderMin.addEventListener('input', updateSlider);
+  sliderMax.addEventListener('input', updateSlider);
+  updateSlider();
+</script>
+{{end}}

@@ -1,0 +1,16 @@
+{{define "bottom_nav"}}
+<nav class="bottom-nav">
+  <a href="/feed" class="nav-item {{if eq .ActiveNav "feed"}}active{{end}}">
+    <i class="bi bi-play-btn nav-icon"></i>
+    <span class="nav-label">Лента</span>
+  </a>
+  <a href="/add" class="nav-item {{if eq .ActiveNav "add"}}active{{end}}">
+    <i class="bi bi-plus-square nav-icon"></i>
+    <span class="nav-label">Добавить</span>
+  </a>
+  <a href="/grid" class="nav-item {{if eq .ActiveNav "grid"}}active{{end}}">
+    <i class="bi bi-grid nav-icon"></i>
+    <span class="nav-label">Плитка</span>
+  </a>
+</nav>
+{{end}}

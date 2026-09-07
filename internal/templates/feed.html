@@ -1,0 +1,57 @@
+{{template "base" .}}
+
+{{define "content"}}
+{{if .Data.Method.VideoURL}}
+<div class="media-container">
+  <video class="feed-video" autoplay loop muted playsinline src="{{.Data.Method.VideoURL}}">
+    Ваш браузер не поддерживает тег видео.
+  </video>
+</div>
+{{end}}
+
+<div class="content-bottom-group">
+  <section class="info-block">
+    <h2 class="info-title">{{.Data.Method.Title}}</h2>
+    <details class="expandable-text">
+      <summary class="text-preview">
+        {{.Data.Method.Description}}
+        <span class="more-btn">больше</span>
+      </summary>
+      <div class="full-text">
+        {{.Data.Method.Description}}
+      </div>
+    </details>
+  </section>
+</div>
+
+<!-- Правая панель с кнопками и перенесенными бейджами -->
+<div class="action-buttons-group">
+  <!-- Кнопка Нравится -->
+  <div class="action-item">
+    <button class="circle-btn" type="button" aria-label="Нравится">
+      <i class="bi bi-heart-fill action-icon"></i>
+    </button>
+    <span class="action-label">{{.Data.Method.LikesCount}}</span>
+  </div>
+
+  <!-- Кнопка Дальше -->
+  <div class="action-item">
+    <a href="/feed?id={{.Data.Method.ID}}&next=true" class="circle-btn" aria-label="Дальше">
+      <i class="bi bi-arrow-down action-icon"></i>
+    </a>
+    <span class="action-label">Дальше</span>
+  </div>
+
+  <!-- Бейджики помещены под кнопку Дальше -->
+  <div class="tags-group">
+    <div class="tag-badge">
+      <i class="bi bi-clock tag-icon"></i>
+      <span class="tag-text">{{printf "%.2f" .Data.Method.TimeInGb}} сек/Гб</span>
+    </div>
+    <div class="tag-badge">
+      <i class="bi bi-shield-check tag-icon"></i>
+      <span class="tag-text">Коэф: {{printf "%.3f" .Data.Method.Reliability}}</span>
+    </div>
+  </div>
+</div>
+{{end}}

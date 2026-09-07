@@ -1,0 +1,58 @@
+package api
+
+import (
+	"os"
+
+	"github.com/Juuwe/data-migration-backend/internal/app/handler"
+	"github.com/Juuwe/data-migration-backend/internal/app/service"
+	"github.com/gin-contrib/multitemplate"
+	"github.com/gin-gonic/gin"
+)
+
+func createMyRender() multitemplate.Renderer {
+	r := multitemplate.NewRenderer()
+
+	r.AddFromFiles("feed",
+		"internal/templates/base.html",
+		"internal/templates/bottom_nav.html",
+		"internal/templates/service_card.html",
+		"internal/templates/feed.html",
+	)
+	r.AddFromFiles("grid",
+		"internal/templates/base.html",
+		"internal/templates/bottom_nav.html",
+		"internal/templates/service_card.html",
+		"internal/templates/grid.html",
+	)
+	r.AddFromFiles("add",
+		"internal/templates/base.html",
+		"internal/templates/bottom_nav.html",
+		"internal/templates/add.html",
+	)
+
+	return r
+}
+
+func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
+	r := gin.Default()
+
+	r.HTMLRender = createMyRender()
+
+	// Находим папку static в корне или в internal/static
+	staticDir := "./static"
+	if _, err := os.Stat("static"); os.IsNotExist(err) {
+		staticDir = "internal/static"
+	}
+	r.Static("/static", staticDir)
+
+	feedHandler := handler.NewFeedHandler(svc)
+	gridHandler := handler.NewGridHandler(svc)
+	addHandler := handler.NewAddHandler(svc)
+
+	r.GET("/", feedHandler.Feed)
+	r.GET("/feed", feedHandler.Feed)
+	r.GET("/grid", gridHandler.Grid)
+	r.GET("/add", addHandler.Add)
+
+	return r
+}
