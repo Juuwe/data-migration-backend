@@ -6,15 +6,27 @@ import (
 	"log"
 
 	"github.com/Juuwe/data-migration-backend/internal/app/model"
-	"github.com/Juuwe/data-migration-backend/internal/app/repository"
 )
 
-type MigrationMethodService struct {
-	repo    repository.MigrationMethodRepository
-	storage *StorageService
+type MigrationMethodRepository interface {
+	FindByID(ctx context.Context, ID int) (model.MigrationMethod, error)
+	FindNextPublishedAfterID(ctx context.Context, ID int) (model.MigrationMethod, error)
+	FindDraft(ctx context.Context) (model.MigrationMethod, error)
+	FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]model.MigrationMethod, error)
+	FindPublished(ctx context.Context) ([]model.MigrationMethod, error)
 }
 
-func NewMigrationMethodService(repo repository.MigrationMethodRepository, storage *StorageService) *MigrationMethodService {
+type MigrationMethodObjectStorage interface {
+	GetURL(ctx context.Context, objectKey string) (string, error)
+}
+
+
+type MigrationMethodService struct {
+	repo    MigrationMethodRepository
+	storage MigrationMethodObjectStorage
+}
+
+func NewMigrationMethodService(repo MigrationMethodRepository, storage MigrationMethodObjectStorage) *MigrationMethodService {
 	return &MigrationMethodService{
 		repo:    repo,
 		storage: storage,
