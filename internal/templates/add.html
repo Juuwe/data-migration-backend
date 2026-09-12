@@ -3,58 +3,64 @@
 {{define "content"}}
 <h1 class="page-title">Новая услуга миграции</h1>
 
-<form class="create-form" action="/add" method="POST" enctype="multipart/form-data">
-  <!-- Скрытое поле ID текущего черновика -->
-  <input type="hidden" name="id" value="{{.Data.Draft.ID}}">
-
-  <div class="media-upload-grid">
-    <!-- Блок изображения -->
-    <div class="upload-field-group">
-      <label class="form-label">Фото</label>
-      <div class="media-preview-container">
-        {{if .Data.Draft.ImageURL}}
-          <img src="{{.Data.Draft.ImageURL}}" alt="Превью фото" class="preview-media">
-        {{else}}
-          <div class="media-placeholder">Нет фото</div>
-        {{end}}
-        <input type="file" name="image" accept="image/*" class="file-input">
-      </div>
-    </div>
-
-    <!-- Блок видео -->
-    <div class="upload-field-group">
-      <label class="form-label">Видео</label>
-      <div class="media-preview-container">
-        {{if .Data.Draft.VideoURL}}
-          <video src="{{.Data.Draft.VideoURL}}" controls class="preview-media"></video>
-        {{else}}
-          <div class="media-placeholder">Нет видео</div>
-        {{end}}
-        <input type="file" name="video" accept="video/*" class="file-input">
-      </div>
-    </div>
+{{if .Data.Error}}
+  <div class="error-message" style="color: #ff4d4f; background: rgba(255,77,79,0.1); padding: 10px; border-radius: 6px; margin-bottom: 16px;">
+    {{.Data.Error}}
   </div>
+{{end}}
 
-  <div class="form-group">
-    <label class="form-label" for="method-input">Метод</label>
-    <input type="text" name="name" id="method-input" class="form-input" value="{{.Data.Draft.Name}}" required>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="description-input">Описание</label>
-    <textarea name="description" id="description-input" class="form-input form-textarea">{{.Data.Draft.Description}}</textarea>
-  </div>
-
-  <div class="metrics-grid">
+{{if .Data.Exists}}
+  <form class="create-form" action="/add/publish" method="POST">
     <div class="form-group">
-      <label class="form-label" for="speed-input">Время за Гб (сек)</label>
-      <input type="number" step="0.01" name="time_in_gb" id="speed-input" class="form-input" value="{{if gt .Data.Draft.TimeInGb 0.0}}{{.Data.Draft.TimeInGb}}{{end}}" required>
+      <label class="form-label">Название услуги (из черновика)</label>
+      <input type="text" class="form-input" value="{{.Data.Draft.Title}}" disabled>
     </div>
 
     <div class="form-group">
-      <label class="form-label" for="reliability-input">Коэф. надежности</label>
-      <input type="number" step="0.001" name="reliability" id="reliability-input" class="form-input" value="{{if gt .Data.Draft.Reliability 0.0}}{{.Data.Draft.Reliability}}{{end}}" required>
+      <label class="form-label" for="description-input">Краткая информация (описание)</label>
+      <textarea name="description" id="description-input" class="form-input form-textarea" placeholder="Введите описание услуги..." required>{{.Data.Draft.Description}}</textarea>
     </div>
-  </div>
-</form>
+
+    <div class="metrics-grid">
+      <div class="form-group">
+        <label class="form-label" for="speed-input">Время за Гб (сек)</label>
+        <input type="number" step="0.01" name="time_in_gb" id="speed-input" class="form-input" value="{{if gt .Data.Draft.TimeInGb 0.0}}{{.Data.Draft.TimeInGb}}{{end}}" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="reliability-input">Коэф. надежности</label>
+        <input type="number" step="0.001" name="reliability" id="reliability-input" class="form-input" value="{{if gt .Data.Draft.Reliability 0.0}}{{.Data.Draft.Reliability}}{{end}}" required>
+      </div>
+    </div>
+
+    <button type="submit" class="submit-btn" style="margin-top: 16px;">Опубликовать</button>
+  </form>
+{{else}}
+  <form class="create-form" action="/add" method="POST" enctype="multipart/form-data">
+    <div class="media-upload-grid">
+      <div class="upload-field-group">
+        <label class="form-label">Фотография услуги</label>
+        <div class="media-preview-container">
+          <div class="media-placeholder">Выберите фото</div>
+          <input type="file" name="photo" accept="image/*" class="file-input" required>
+        </div>
+      </div>
+
+      <div class="upload-field-group">
+        <label class="form-label">Видеодемонстрация</label>
+        <div class="media-preview-container">
+          <div class="media-placeholder">Выберите видео</div>
+          <input type="file" name="video" accept="video/*" class="file-input" required>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="method-input">Название услуги</label>
+      <input type="text" name="title" id="method-input" class="form-input" placeholder="Введите название..." required>
+    </div>
+
+    <button type="submit" class="submit-btn" style="margin-top: 16px;">Далее</button>
+  </form>
+{{end}}
 {{end}}

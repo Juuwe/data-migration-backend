@@ -45,14 +45,14 @@ func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
 	}
 	r.Static("/static", staticDir)
 
-	feedHandler := handler.NewFeedHandler(svc)
-	gridHandler := handler.NewGridHandler(svc)
-	addHandler := handler.NewAddHandler(svc)
+	migrationMethodsHandler := handler.NewMigrationMethodHandler(svc)
 
-	r.GET("/", feedHandler.Feed)
-	r.GET("/feed", feedHandler.Feed)
-	r.GET("/grid", gridHandler.Grid)
-	r.GET("/add", addHandler.Add)
+	r.GET("/", migrationMethodsHandler.GetFeedItem)
+	r.GET("/feed", migrationMethodsHandler.GetFeedItem)
+	r.GET("/grid", migrationMethodsHandler.GetGrid)
+	r.GET("/add", migrationMethodsHandler.ShowAddMethodPage)
+
+	r.POST("/add", )
 
 	return r
 }

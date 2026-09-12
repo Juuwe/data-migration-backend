@@ -24,17 +24,16 @@
   </section>
 </div>
 
-<!-- Правая панель с кнопками и перенесенными бейджами -->
 <div class="action-buttons-group">
-  <!-- Кнопка Нравится -->
+  <!-- Отображение лайков из БД -->
   <div class="action-item">
-    <button class="circle-btn" type="button" aria-label="Нравится">
+    <div class="circle-btn" aria-label="Нравится">
       <i class="bi bi-heart-fill action-icon"></i>
-    </button>
+    </div>
     <span class="action-label">{{.Data.Method.LikesCount}}</span>
   </div>
 
-  <!-- Кнопка Дальше -->
+  <!-- Кнопка перехода к следующей карточке -->
   <div class="action-item">
     <a href="/feed?id={{.Data.Method.ID}}&next=true" class="circle-btn" aria-label="Дальше">
       <i class="bi bi-arrow-down action-icon"></i>
@@ -42,7 +41,7 @@
     <span class="action-label">Дальше</span>
   </div>
 
-  <!-- Бейджики помещены под кнопку Дальше -->
+  <!-- Характеристики -->
   <div class="tags-group">
     <div class="tag-badge">
       <i class="bi bi-clock tag-icon"></i>

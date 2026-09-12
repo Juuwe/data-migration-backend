@@ -4,16 +4,30 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
+	"strings"
 
-	"github.com/Juuwe/data-migration-backend/internal/app/model"
+	"github.com/Juuwe/data-migration-backend/internal/ds"
+)
+
+const (
+	DefaultImageURL = "/static/images/default.jpg"
+	DefaultVideoURL = "/static/videos/default.mp4"
 )
 
 type MigrationMethodRepository interface {
-	FindByID(ctx context.Context, ID int) (model.MigrationMethod, error)
-	FindNextPublishedAfterID(ctx context.Context, ID int) (model.MigrationMethod, error)
-	FindDraft(ctx context.Context) (model.MigrationMethod, error)
-	FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]model.MigrationMethod, error)
-	FindPublished(ctx context.Context) ([]model.MigrationMethod, error)
+	FindByID(ctx context.Context, ID int) (ds.MigrationMethod, error)
+	FindNextPublishedAfterID(ctx context.Context, ID int) (ds.MigrationMethod, error)
+	FindDraft(ctx context.Context, creatorID int64) (ds.MigrationMethod, error)
+	FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]ds.MigrationMethod, error)
+	FindPublished(ctx context.Context) ([]ds.MigrationMethod, error)
+
+	CountMethodLikesByID(ctx context.Context, methodID int64) (int, error)
+	CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error)
+
+	Create(ctx context.Context, method *ds.MigrationMethod) error
+	Update(ctx context.Context, method *ds.MigrationMethod) error
+	SoftDeleteSQL(ctx context.Context, id int64) error
 }
 
 type MigrationMethodObjectStorage interface {
@@ -34,13 +48,13 @@ func NewMigrationMethodService(repo MigrationMethodRepository, storage Migration
 }
 
 type MigrationMethodView struct {
-	model.MigrationMethod
+	ds.MigrationMethod
 	VideoURL   string
 	ImageURL   string
 	LikesCount int
 }
 
-func (s *MigrationMethodService) buildView(ctx context.Context, m model.MigrationMethod) MigrationMethodView {
+func (s *MigrationMethodService) buildView(ctx context.Context, m *ds.MigrationMethod, likesCount int) MigrationMethodView {
 	videoURL, err := s.storage.GetURL(ctx, m.VideoKey)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get video URL for key '%s': %v", m.VideoKey, err)
@@ -52,19 +66,52 @@ func (s *MigrationMethodService) buildView(ctx context.Context, m model.Migratio
 	}
 
 	return MigrationMethodView{
-		MigrationMethod: m,
+		MigrationMethod: *m,
 		VideoURL:        videoURL,
 		ImageURL:        imageURL,
-		LikesCount:      len(m.Likes),
+		LikesCount:      likesCount,
 	}
 }
 
-func (s *MigrationMethodService) GetDraft(ctx context.Context) (MigrationMethodView, error) {
-	draft, err := s.repo.FindDraft(ctx)
+func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.MigrationMethod) (MigrationMethodView, error) {
+	likesCount, err := s.repo.CountMethodLikesByID(ctx, m.ID)
 	if err != nil {
-		return MigrationMethodView{}, err
+		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
 	}
-	return s.buildView(ctx, draft), nil
+
+	return s.buildView(ctx, m, likesCount), nil
+}
+
+func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod) ([]MigrationMethodView, error) {
+	if len(methods) == 0 {
+		return make([]MigrationMethodView, 0), nil
+	}
+
+	methodIDs := make([]int64, len(methods))
+	for i := range methods {
+		methodIDs[i] = methods[i].ID
+	}
+
+	likesMap, err := s.repo.CountLikesByMethodIDs(ctx, methodIDs)
+	if err != nil {
+		log.Printf("Failed to fetch likes count batch: %v", err)
+	}
+
+	views := make([]MigrationMethodView, len(methods))
+	for i := range methods {
+		id := methods[i].ID
+		views[i] = s.buildView(ctx, &methods[i], likesMap[id])
+	}
+
+	return views, nil
+}
+
+func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) (MigrationMethodView, bool, error) {
+	draft, err := s.repo.FindDraft(ctx, creatorID)
+	if err != nil {
+		return MigrationMethodView{}, false, nil
+	}
+	return s.buildView(ctx, &draft, 0), true, nil
 }
 
 func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationMethodView, error) {
@@ -73,11 +120,7 @@ func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationM
 		return nil, err
 	}
 
-	views := make([]MigrationMethodView, len(methods))
-	for i, m := range methods {
-		views[i] = s.buildView(ctx, m)
-	}
-	return views, nil
+	return s.buildViewList(ctx, methods)
 }
 
 func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id int) (MigrationMethodView, error) {
@@ -85,7 +128,8 @@ func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id
 	if err != nil {
 		return MigrationMethodView{}, err
 	}
-	return s.buildView(ctx, m), nil
+
+	return s.buildSingleView(ctx, &m)
 }
 
 func (s *MigrationMethodService) GetByID(ctx context.Context, id int) (MigrationMethodView, error) {
@@ -98,7 +142,8 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id int) (Migration
 		return MigrationMethodView{}, errors.New("метод удален")
 	}
 
-	return s.buildView(ctx, m), nil
+
+	return s.buildSingleView(ctx, &m)
 }
 
 func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64) ([]MigrationMethodView, error) {
@@ -107,9 +152,43 @@ func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime
 		return []MigrationMethodView{}, err
 	}
 
-	views := make([]MigrationMethodView, len(methods))
-	for i, m := range methods {
-		views[i] = s.buildView(ctx, m)
+	return s.buildViewList(ctx, methods)
+}
+
+func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64) error {
+	if strings.TrimSpace(title) == "" {
+		return errors.New("название не может быть пустым")
 	}
-	return views, nil
+
+	_, exists, _ := s.GetDraft(ctx, creatorID)
+	if exists {
+		return errors.New("черновик уже существует")
+	}
+
+	m := ds.MigrationMethod{
+		Title:     title,
+		Status: ds.StatusDraft,
+		CreatorID: creatorID,
+		FormedAt:  time.Now(),
+	}
+	return s.repo.Create(ctx, &m)
+}
+
+func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int64, desc string, timeInGb, reliability float64) error {
+	draft, err := s.repo.FindDraft(ctx, creatorID)
+	if err != nil {
+		return errors.New("черновик не найден")
+	}
+
+	draft.Description = desc
+	draft.TimeInGb = timeInGb
+	draft.Reliability = reliability
+	draft.Status = ds.StatusPublished
+	draft.FormedAt = time.Now()
+
+	return s.repo.Update(ctx, &draft)
+}
+
+func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id int64) error {
+	return s.repo.SoftDeleteSQL(ctx, id)
 }
