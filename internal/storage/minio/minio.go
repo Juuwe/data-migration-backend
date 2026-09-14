@@ -30,6 +30,9 @@ func (s *Storage) GetURL(ctx context.Context, objectKey string) (string, error) 
 	if s.client == nil {
 		return fmt.Sprintf("%s/%s/%s", s.baseURL, s.bucketName, objectKey), nil
 	}
+	if _, err := s.client.StatObject(ctx, s.bucketName, objectKey, minio.StatObjectOptions{}); err != nil {
+		return "", fmt.Errorf("stat object %q: %w", objectKey, err)
+	}
 
 	presignedURL, err := s.client.PresignedGetObject(ctx, s.bucketName, objectKey, time.Hour*2, nil)
 	if err != nil {

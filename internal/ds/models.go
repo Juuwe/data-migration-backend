@@ -1,6 +1,11 @@
 package ds
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrMigrationMethodNotFound = errors.New("migration method not found")
 
 type Status string
 

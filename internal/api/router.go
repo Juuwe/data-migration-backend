@@ -47,12 +47,13 @@ func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
 
 	migrationMethodsHandler := handler.NewMigrationMethodHandler(svc)
 
-	r.GET("/", migrationMethodsHandler.GetFeedItem)
 	r.GET("/feed", migrationMethodsHandler.GetFeedItem)
 	r.GET("/grid", migrationMethodsHandler.GetGrid)
 	r.GET("/add", migrationMethodsHandler.ShowAddMethodPage)
 
-	r.POST("/add", )
+	r.POST("/add", migrationMethodsHandler.CreateDraftMethod)
+	r.POST("/add/publish", migrationMethodsHandler.PublishDraftMethod)
+	r.POST("/methods/:id/delete", migrationMethodsHandler.SoftDeleteMethod)
 
 	return r
 }

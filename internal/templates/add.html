@@ -4,13 +4,46 @@
 <h1 class="page-title">Новая услуга миграции</h1>
 
 {{if .Data.Error}}
-  <div class="error-message" style="color: #ff4d4f; background: rgba(255,77,79,0.1); padding: 10px; border-radius: 6px; margin-bottom: 16px;">
+  <div class="error-message">
     {{.Data.Error}}
   </div>
 {{end}}
 
 {{if .Data.Exists}}
   <form class="create-form" action="/add/publish" method="POST">
+    <div class="media-upload-grid current-media-preview">
+      <div class="upload-field-group">
+        <label class="form-label">Фотография</label>
+        <div class="media-preview-container">
+          <img src="{{.Data.Draft.ImageURL}}" alt="{{.Data.Draft.Title}}" class="preview-media">
+        </div>
+      </div>
+      <div class="upload-field-group">
+        <label class="form-label">Видео</label>
+        <div class="media-preview-container">
+          {{if .Data.Draft.VideoKey}}
+            <video
+              src="{{.Data.Draft.VideoURL}}"
+              poster="/static/images/default.svg"
+              class="preview-media"
+              autoplay
+              loop
+              muted
+              playsinline
+            ></video>
+          {{else}}
+            <div class="video-fallback" role="img" aria-label="Видео услуги по умолчанию">
+              <img src="/static/images/default.svg" alt="" class="preview-media">
+              <span class="video-fallback-label">
+                <i class="bi bi-camera-video"></i>
+                Видео по умолчанию
+              </span>
+            </div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
     <div class="form-group">
       <label class="form-label">Название услуги (из черновика)</label>
       <input type="text" class="form-input" value="{{.Data.Draft.Title}}" disabled>
@@ -33,25 +66,29 @@
       </div>
     </div>
 
-    <button type="submit" class="submit-btn" style="margin-top: 16px;">Опубликовать</button>
+    <button type="submit" class="submit-btn">Опубликовать</button>
   </form>
 {{else}}
-  <form class="create-form" action="/add" method="POST" enctype="multipart/form-data">
+  <form class="create-form" action="/add" method="POST">
     <div class="media-upload-grid">
       <div class="upload-field-group">
         <label class="form-label">Фотография услуги</label>
-        <div class="media-preview-container">
-          <div class="media-placeholder">Выберите фото</div>
-          <input type="file" name="photo" accept="image/*" class="file-input" required>
-        </div>
+        <label class="upload-card" for="photo-input">
+          <i class="bi bi-image upload-icon"></i>
+          <span class="upload-text">Выберите фотографию</span>
+          <span class="upload-hint">Нажмите, чтобы выбрать файл</span>
+          <input id="photo-input" type="file" accept="image/*" class="file-input" required>
+        </label>
       </div>
 
       <div class="upload-field-group">
         <label class="form-label">Видеодемонстрация</label>
-        <div class="media-preview-container">
-          <div class="media-placeholder">Выберите видео</div>
-          <input type="file" name="video" accept="video/*" class="file-input" required>
-        </div>
+        <label class="upload-card" for="video-input">
+          <i class="bi bi-camera-video upload-icon"></i>
+          <span class="upload-text">Выберите видео</span>
+          <span class="upload-hint">Нажмите, чтобы выбрать файл</span>
+          <input id="video-input" type="file" accept="video/*" class="file-input" required>
+        </label>
       </div>
     </div>
 
@@ -60,7 +97,7 @@
       <input type="text" name="title" id="method-input" class="form-input" placeholder="Введите название..." required>
     </div>
 
-    <button type="submit" class="submit-btn" style="margin-top: 16px;">Далее</button>
+    <button type="submit" class="submit-btn">Далее</button>
   </form>
 {{end}}
 {{end}}

@@ -4,20 +4,20 @@ import (
 	"context"
 	"errors"
 	"log"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 )
 
 const (
-	DefaultImageURL = "/static/images/default.jpg"
+	DefaultImageURL = "/static/images/default.svg"
 	DefaultVideoURL = "/static/videos/default.mp4"
 )
 
 type MigrationMethodRepository interface {
-	FindByID(ctx context.Context, ID int) (ds.MigrationMethod, error)
-	FindNextPublishedAfterID(ctx context.Context, ID int) (ds.MigrationMethod, error)
+	FindByID(ctx context.Context, id int64) (ds.MigrationMethod, error)
+	FindNextPublishedAfterID(ctx context.Context, id int64) (ds.MigrationMethod, error)
 	FindDraft(ctx context.Context, creatorID int64) (ds.MigrationMethod, error)
 	FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]ds.MigrationMethod, error)
 	FindPublished(ctx context.Context) ([]ds.MigrationMethod, error)
@@ -33,7 +33,6 @@ type MigrationMethodRepository interface {
 type MigrationMethodObjectStorage interface {
 	GetURL(ctx context.Context, objectKey string) (string, error)
 }
-
 
 type MigrationMethodService struct {
 	repo    MigrationMethodRepository
@@ -59,10 +58,16 @@ func (s *MigrationMethodService) buildView(ctx context.Context, m *ds.MigrationM
 	if err != nil {
 		log.Printf("[ERROR] Failed to get video URL for key '%s': %v", m.VideoKey, err)
 	}
+	if videoURL == "" {
+		videoURL = DefaultVideoURL
+	}
 
 	imageURL, err := s.storage.GetURL(ctx, m.ImageKey)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get image URL for key '%s': %v", m.ImageKey, err)
+	}
+	if imageURL == "" {
+		imageURL = DefaultImageURL
 	}
 
 	return MigrationMethodView{
@@ -109,7 +114,10 @@ func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds
 func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) (MigrationMethodView, bool, error) {
 	draft, err := s.repo.FindDraft(ctx, creatorID)
 	if err != nil {
-		return MigrationMethodView{}, false, nil
+		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
+			return MigrationMethodView{}, false, nil
+		}
+		return MigrationMethodView{}, false, err
 	}
 	return s.buildView(ctx, &draft, 0), true, nil
 }
@@ -123,16 +131,27 @@ func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationM
 	return s.buildViewList(ctx, methods)
 }
 
-func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id int) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id int64) (MigrationMethodView, error) {
 	m, err := s.repo.FindNextPublishedAfterID(ctx, id)
 	if err != nil {
-		return MigrationMethodView{}, err
+		if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
+			return MigrationMethodView{}, err
+		}
+
+		published, findErr := s.repo.FindPublished(ctx)
+		if findErr != nil {
+			return MigrationMethodView{}, findErr
+		}
+		if len(published) == 0 {
+			return MigrationMethodView{}, ds.ErrMigrationMethodNotFound
+		}
+		m = published[0]
 	}
 
 	return s.buildSingleView(ctx, &m)
 }
 
-func (s *MigrationMethodService) GetByID(ctx context.Context, id int) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetByID(ctx context.Context, id int64) (MigrationMethodView, error) {
 	m, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return MigrationMethodView{}, err
@@ -141,7 +160,6 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id int) (Migration
 	if m.IsDeleted() {
 		return MigrationMethodView{}, errors.New("метод удален")
 	}
-
 
 	return s.buildSingleView(ctx, &m)
 }
@@ -156,28 +174,50 @@ func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime
 }
 
 func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64) error {
-	if strings.TrimSpace(title) == "" {
+	title = strings.TrimSpace(title)
+	if title == "" {
 		return errors.New("название не может быть пустым")
 	}
+	if len([]rune(title)) > 255 {
+		return errors.New("название не может быть длиннее 255 символов")
+	}
 
-	_, exists, _ := s.GetDraft(ctx, creatorID)
+	_, exists, err := s.GetDraft(ctx, creatorID)
+	if err != nil {
+		return err
+	}
 	if exists {
 		return errors.New("черновик уже существует")
 	}
 
 	m := ds.MigrationMethod{
-		Title:     title,
-		Status: ds.StatusDraft,
-		CreatorID: creatorID,
-		FormedAt:  time.Now(),
+		Title:       title,
+		Description: "",
+		Status:      ds.StatusDraft,
+		CreatorID:   creatorID,
+		FormedAt:    time.Now(),
 	}
 	return s.repo.Create(ctx, &m)
 }
 
 func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int64, desc string, timeInGb, reliability float64) error {
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return errors.New("описание не может быть пустым")
+	}
+	if timeInGb <= 0 {
+		return errors.New("время на Гб должно быть больше нуля")
+	}
+	if reliability < 0 || reliability > 1 {
+		return errors.New("коэффициент надежности должен быть от 0 до 1")
+	}
+
 	draft, err := s.repo.FindDraft(ctx, creatorID)
 	if err != nil {
-		return errors.New("черновик не найден")
+		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
+			return errors.New("черновик не найден")
+		}
+		return err
 	}
 
 	draft.Description = desc
@@ -190,5 +230,8 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 }
 
 func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return errors.New("некорректный ID")
+	}
 	return s.repo.SoftDeleteSQL(ctx, id)
 }

@@ -1,7 +1,7 @@
 {{template "base" .}}
 
 {{define "content"}}
-<form id="filter-form" action="/" method="GET" class="filter-section">
+<form id="filter-form" action="/grid" method="GET" class="filter-section">
   <div class="filter-header">
     <span class="filter-label">Время за Гб (сек)</span>
     <span class="filter-value" id="range-value">
@@ -11,10 +11,8 @@
 
   <div class="range-slider-container">
     <div class="range-track-bg"></div>
-    <div class="range-track-active" id="range-track"></div>
     <input
       type="range"
-      id="slider-min"
       name="min_time"
       min="0.01"
       max="1.00"
@@ -24,7 +22,6 @@
     >
     <input
       type="range"
-      id="slider-max"
       name="max_time"
       min="0.01"
       max="1.00"
@@ -44,76 +41,4 @@
     <p class="no-data">Услуги миграции не найдены</p>
   {{end}}
 </section>
-{{end}}
-
-{{define "service_card"}}
-<div class="card">
-  <img src="{{.ImageURL}}" alt="{{.Title}}" class="card-image">
-  <div class="card-body">
-    <h3 class="card-title">{{.Title}}</h3>
-    <p class="card-description">{{.Description}}</p>
-    <div class="card-meta">
-      <span class="likes-count">❤️ {{.LikesCount}}</span>
-      <span class="speed-info">⏱️ {{printf "%.2f" .TimeInGb}} сек/Гб</span>
-    </div>
-
-    <div class="card-actions" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-      <a href="/feed?id={{.ID}}" class="btn-link">Смотреть</a>
-
-      <!-- Кнопка логического удаления (POST /methods/:id/delete через Raw SQL) -->
-      <form action="/methods/{{.ID}}/delete" method="POST" style="margin: 0;">
-        <button type="submit" class="btn-delete" onclick="return confirm('Удалить эту услугу?')">
-          Удалить
-        </button>
-      </form>
-    </div>
-  </div>
-</div>
-{{end}}
-
-{{define "scripts"}}
-<script>
-  const sliderMin = document.getElementById('slider-min');
-  const sliderMax = document.getElementById('slider-max');
-  const rangeTrack = document.getElementById('range-track');
-  const rangeValue = document.getElementById('range-value');
-  const minGap = 0.05;
-
-  function formatNum(num) {
-    return parseFloat(num.toFixed(2)).toString();
-  }
-
-  function updateSlider(e) {
-    let minVal = parseFloat(sliderMin.value);
-    let maxVal = parseFloat(sliderMax.value);
-
-    if (maxVal - minVal < minGap) {
-      if (e && e.target === sliderMin) {
-        sliderMin.value = (maxVal - minGap).toFixed(2);
-        minVal = parseFloat(sliderMin.value);
-      } else {
-        sliderMax.value = (minVal + minGap).toFixed(2);
-        maxVal = parseFloat(sliderMax.value);
-      }
-    }
-
-    const minRatio = (minVal - parseFloat(sliderMin.min)) / (parseFloat(sliderMax.max) - parseFloat(sliderMin.min));
-    const maxRatio = (maxVal - parseFloat(sliderMin.min)) / (parseFloat(sliderMax.max) - parseFloat(sliderMin.min));
-
-    const offset = 19;
-    const availableWidth = 398 - offset * 2;
-
-    const leftPx = offset + minRatio * availableWidth;
-    const rightPx = offset + maxRatio * availableWidth;
-
-    rangeTrack.style.left = leftPx + 'px';
-    rangeTrack.style.width = (rightPx - leftPx) + 'px';
-
-    rangeValue.textContent = `${formatNum(minVal)} — ${formatNum(maxVal)} cек/Гб`;
-  }
-
-  sliderMin.addEventListener('input', updateSlider);
-  sliderMax.addEventListener('input', updateSlider);
-  updateSlider();
-</script>
 {{end}}

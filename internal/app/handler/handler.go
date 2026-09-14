@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
+	"github.com/Juuwe/data-migration-backend/internal/ds"
 	"github.com/gin-gonic/gin"
 )
 
@@ -59,7 +61,7 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 		err     error
 	)
 
-	if errMin != nil || errMax != nil {
+	if errMin != nil || errMax != nil || minTime < 0 || maxTime < minTime {
 		minTime, maxTime = 0.01, 1.00
 		methods, err = h.s.GetPublished(ctx)
 	} else {
@@ -98,9 +100,9 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		}
 		method = published[0]
 	} else {
-		var id int
-		id, err = strconv.Atoi(idStr)
-		if err != nil {
+		var id int64
+		id, err = strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
 			c.HTML(http.StatusBadRequest, "feed", NewPageContext("Ошибка ID", "feed", false, FeedPageData{}))
 			return
 		}
@@ -122,7 +124,13 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 }
 
 func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
-	draft, exists, _ := h.s.GetDraft(c.Request.Context(), 1)
+	draft, exists, err := h.s.GetDraft(c.Request.Context(), 1)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "add", NewPageContext("Ошибка", "add", true, AddPageData{
+			Error: "Не удалось загрузить черновик",
+		}))
+		return
+	}
 
 	page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
 		Draft:  draft,
@@ -150,22 +158,30 @@ func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
 func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
 	userID := int64(1)
 	desc := c.PostForm("description")
-	timeInGb, _ := strconv.ParseFloat(c.PostForm("time_in_gb"), 64)
-	reliability, _ := strconv.ParseFloat(c.PostForm("reliability"), 64)
-
-	err := h.s.PublishDraft(c.Request.Context(), userID, desc, timeInGb, reliability)
-	if err != nil {
-		draft, _, _ := h.s.GetDraft(c.Request.Context(), userID)
-		page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
-			Draft:  draft,
-			Exists: true,
-			Error:  err.Error(),
-		})
-		c.HTML(http.StatusBadRequest, "add", page)
+	timeInGb, timeErr := strconv.ParseFloat(c.PostForm("time_in_gb"), 64)
+	reliability, reliabilityErr := strconv.ParseFloat(c.PostForm("reliability"), 64)
+	if timeErr != nil || reliabilityErr != nil {
+		h.renderPublishError(c, userID, "Поля времени и надежности должны содержать числа")
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, "/")
+	err := h.s.PublishDraft(c.Request.Context(), userID, desc, timeInGb, reliability)
+	if err != nil {
+		h.renderPublishError(c, userID, err.Error())
+		return
+	}
+
+	c.Redirect(http.StatusSeeOther, "/feed")
+}
+
+func (h *MigrationMethodHandler) renderPublishError(c *gin.Context, userID int64, message string) {
+	draft, exists, _ := h.s.GetDraft(c.Request.Context(), userID)
+	page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
+		Draft:  draft,
+		Exists: exists,
+		Error:  message,
+	})
+	c.HTML(http.StatusBadRequest, "add", page)
 }
 
 func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
@@ -177,9 +193,13 @@ func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 
 	err = h.s.DeleteMethod(c.Request.Context(), id)
 	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
+			status = http.StatusNotFound
+		}
+		c.String(status, err.Error())
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, "/")
+	c.Redirect(http.StatusSeeOther, "/grid")
 }
