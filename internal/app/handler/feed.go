@@ -23,7 +23,7 @@ func NewFeedHandler(s *service.MigrationMethodService) *FeedHandler {
 func (h *FeedHandler) Feed(c *gin.Context) {
 	idStr := c.Query("id")
 	nextStr := c.Query("next")
-	ctx := c.Request.Context() // Используем контекст запроса
+	ctx := c.Request.Context()
 
 	var (
 		method service.MigrationMethodView

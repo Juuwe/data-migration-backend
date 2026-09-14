@@ -1,7 +1,6 @@
 {{template "base" .}}
 
 {{define "content"}}
-<!-- Форма получила id для привязки кнопки -->
 <form id="filter-form" action="/grid" method="GET" class="filter-section">
   <div class="filter-header">
     <span class="filter-label">Время за Гб (сек)</span>
@@ -12,7 +11,7 @@
 
   <div class="range-slider-container">
     <div class="range-track-bg"></div>
-    <div class="range-track-active" id="range-track"></div>
+    <div class="range-track-active" id="range-track" aria-hidden="true"></div>
     <input
       type="range"
       id="slider-min"
@@ -36,14 +35,13 @@
   </div>
 </form>
 
-<!-- Кнопка вынесена из формы для ровного позиционирования -->
 <button class="search-btn" type="submit" form="filter-form">Найти</button>
 
 <section class="cards-grid">
   {{range .Data.Methods}}
     {{template "service_card" .}}
   {{else}}
-    <p>Методы миграции не найдены</p>
+    <p class="no-data">Услуги миграции не найдены</p>
   {{end}}
 </section>
 {{end}}
@@ -56,41 +54,39 @@
   const rangeValue = document.getElementById('range-value');
   const minGap = 0.05;
 
-  function formatNum(num) {
-    return parseFloat(num.toFixed(2)).toString();
+  function formatNumber(value) {
+    return Number.parseFloat(value.toFixed(2)).toString();
   }
 
-  function updateSlider(e) {
-    let minVal = parseFloat(sliderMin.value);
-    let maxVal = parseFloat(sliderMax.value);
+  function updateSlider(event) {
+    let minValue = Number.parseFloat(sliderMin.value);
+    let maxValue = Number.parseFloat(sliderMax.value);
 
-    if (maxVal - minVal < minGap) {
-      if (e && e.target === sliderMin) {
-        sliderMin.value = (maxVal - minGap).toFixed(2);
-        minVal = parseFloat(sliderMin.value);
+    if (maxValue - minValue < minGap) {
+      if (event?.target === sliderMin) {
+        minValue = maxValue - minGap;
+        sliderMin.value = minValue.toFixed(2);
       } else {
-        sliderMax.value = (minVal + minGap).toFixed(2);
-        maxVal = parseFloat(sliderMax.value);
+        maxValue = minValue + minGap;
+        sliderMax.value = maxValue.toFixed(2);
       }
     }
 
-    const minRatio = (minVal - parseFloat(sliderMin.min)) / (parseFloat(sliderMin.max) - parseFloat(sliderMin.min));
-    const maxRatio = (maxVal - parseFloat(sliderMax.min)) / (parseFloat(sliderMax.max) - parseFloat(sliderMax.min));
+    const sliderStart = Number.parseFloat(sliderMin.min);
+    const sliderRange = Number.parseFloat(sliderMin.max) - sliderStart;
+    const trackOffset = 19;
+    const trackWidth = sliderMin.closest('.range-slider-container').clientWidth - trackOffset * 2;
+    const left = trackOffset + ((minValue - sliderStart) / sliderRange) * trackWidth;
+    const right = trackOffset + ((maxValue - sliderStart) / sliderRange) * trackWidth;
 
-    const offset = 19;
-    const availableWidth = 398 - offset * 2;
-
-    const leftPx = offset + minRatio * availableWidth;
-    const rightPx = offset + maxRatio * availableWidth;
-
-    rangeTrack.style.left = leftPx + 'px';
-    rangeTrack.style.width = (rightPx - leftPx) + 'px';
-
-    rangeValue.textContent = `${formatNum(minVal)} — ${formatNum(maxVal)} cек/Гб`;
+    rangeTrack.style.left = `${left}px`;
+    rangeTrack.style.width = `${right - left}px`;
+    rangeValue.textContent = `${formatNumber(minValue)} — ${formatNumber(maxValue)} cек/Гб`;
   }
 
   sliderMin.addEventListener('input', updateSlider);
   sliderMax.addEventListener('input', updateSlider);
+  window.addEventListener('resize', updateSlider);
   updateSlider();
 </script>
 {{end}}

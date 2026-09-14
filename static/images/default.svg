@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="430" height="751" viewBox="0 0 430 751" role="img" aria-labelledby="title description">
+  <title id="title">Изображение услуги миграции по умолчанию</title>
+  <desc id="description">Схематичное изображение переноса данных между двумя базами</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#121212"/>
+      <stop offset="1" stop-color="#2a9fff"/>
+    </linearGradient>
+  </defs>
+  <rect width="430" height="751" fill="url(#background)"/>
+  <g fill="none" stroke="#fff" stroke-width="12">
+    <ellipse cx="120" cy="320" rx="70" ry="28"/>
+    <path d="M50 320v95c0 16 31 29 70 29s70-13 70-29v-95M50 368c0 16 31 29 70 29s70-13 70-29"/>
+    <ellipse cx="310" cy="320" rx="70" ry="28"/>
+    <path d="M240 320v95c0 16 31 29 70 29s70-13 70-29v-95M240 368c0 16 31 29 70 29s70-13 70-29M194 374h42"/>
+    <path d="m215 348 28 26-28 26"/>
+  </g>
+  <text x="215" y="520" fill="#fff" font-family="sans-serif" font-size="25" font-weight="700" text-anchor="middle">Миграция данных</text>
+</svg>

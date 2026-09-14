@@ -1,6 +1,7 @@
 {{template "base" .}}
 
 {{define "content"}}
+{{if gt .Data.Method.ID 0}}
 {{if .Data.Method.VideoURL}}
 <div class="media-container">
   <video class="feed-video" autoplay loop muted playsinline src="{{.Data.Method.VideoURL}}">
@@ -24,17 +25,16 @@
   </section>
 </div>
 
-<!-- Правая панель с кнопками и перенесенными бейджами -->
 <div class="action-buttons-group">
-  <!-- Кнопка Нравится -->
+  <!-- Отображение лайков из БД -->
   <div class="action-item">
-    <button class="circle-btn" type="button" aria-label="Нравится">
+    <div class="circle-btn" aria-label="Нравится">
       <i class="bi bi-heart-fill action-icon"></i>
-    </button>
+    </div>
     <span class="action-label">{{.Data.Method.LikesCount}}</span>
   </div>
 
-  <!-- Кнопка Дальше -->
+  <!-- Кнопка перехода к следующей карточке -->
   <div class="action-item">
     <a href="/feed?id={{.Data.Method.ID}}&next=true" class="circle-btn" aria-label="Дальше">
       <i class="bi bi-arrow-down action-icon"></i>
@@ -42,16 +42,28 @@
     <span class="action-label">Дальше</span>
   </div>
 
-  <!-- Бейджики помещены под кнопку Дальше -->
+  <!-- Характеристики -->
   <div class="tags-group">
     <div class="tag-badge">
       <i class="bi bi-clock tag-icon"></i>
       <span class="tag-text">{{printf "%.2f" .Data.Method.TimeInGb}} сек/Гб</span>
     </div>
-    <div class="tag-badge">
+    <div
+      class="tag-badge"
+      title="Коэффициент надёжности"
+      aria-label="Коэффициент надёжности: {{printf "%.3f" .Data.Method.Reliability}}"
+    >
       <i class="bi bi-shield-check tag-icon"></i>
-      <span class="tag-text">Коэф: {{printf "%.3f" .Data.Method.Reliability}}</span>
+      <span class="tag-text">{{printf "%.3f" .Data.Method.Reliability}}</span>
     </div>
   </div>
 </div>
+{{else}}
+<section class="feed-empty-state">
+  <i class="bi bi-exclamation-circle feed-empty-icon"></i>
+  <h2>Услуга не найдена</h2>
+  <p>В ленте нет доступной карточки с таким идентификатором.</p>
+  <a href="/feed" class="feed-empty-link">Вернуться в ленту</a>
+</section>
+{{end}}
 {{end}}

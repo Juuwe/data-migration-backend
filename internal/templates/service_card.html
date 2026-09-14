@@ -1,20 +1,19 @@
 {{define "service_card"}}
-<a href="/feed?id={{.ID}}" class="service-card">
-  <div class="card-media">
-    {{if .ImageKey}}
+<article class="service-card">
+  <a href="/feed?id={{.ID}}" class="service-card-link">
+    <div class="card-media">
       <img src="{{.ImageURL}}" alt="{{.Title}}" class="card-img">
-    {{end}}
-    <div class="like-badge">
-      <i class="bi bi-heart-fill card-like-icon"></i>
-      <span class="like-count">{{.LikesCount}}</span>
+      <div class="card-like-badge" aria-label="Количество лайков: {{.LikesCount}}">
+        <i class="bi bi-heart-fill card-like-icon"></i>
+        <span>{{.LikesCount}}</span>
+      </div>
     </div>
-  </div>
-  <div class="card-info">
     <h3 class="card-title">{{.Title}}</h3>
-    <div class="card-metric">
-      <i class="bi bi-clock card-clock-icon"></i>
-      <span class="metric-text">{{printf "%g" .TimeInGb}} сек/Гб</span>
-    </div>
+  </a>
+
+  <div class="card-time" aria-label="Время обработки одного гигабайта">
+    <i class="bi bi-clock card-clock-icon"></i>
+    <span>{{printf "%g" .TimeInGb}} сек/Гб</span>
   </div>
-</a>
+</article>
 {{end}}

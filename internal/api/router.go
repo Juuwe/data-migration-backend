@@ -38,7 +38,6 @@ func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
 
 	r.HTMLRender = createMyRender()
 
-	// Находим папку static в корне или в internal/static
 	staticDir := "./static"
 	if _, err := os.Stat("static"); os.IsNotExist(err) {
 		staticDir = "internal/static"
@@ -49,7 +48,6 @@ func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
 	gridHandler := handler.NewGridHandler(svc)
 	addHandler := handler.NewAddHandler(svc)
 
-	r.GET("/", feedHandler.Feed)
 	r.GET("/feed", feedHandler.Feed)
 	r.GET("/grid", gridHandler.Grid)
 	r.GET("/add", addHandler.Add)
