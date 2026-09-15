@@ -27,8 +27,8 @@ go.work.sum
 # env file
 .env
 
-/minio_data
-/minio_config
+minio_data/
+minio_config/
 
 # Editor/IDE
 # .idea/
