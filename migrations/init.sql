@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     description TEXT NOT NULL DEFAULT '',
     status VARCHAR(20) NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'deleted')),
-    image_key VARCHAR(512),
-    video_key VARCHAR(512),
+    image_url VARCHAR(2048),
+    video_url VARCHAR(2048),
     time_in_gb NUMERIC(10, 2) NOT NULL DEFAULT 0,
     reliability NUMERIC(5, 4) NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -20,6 +20,50 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     CONSTRAINT fk_migration_methods_creator
         FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT
 );
+
+-- Convert databases created by older versions from object keys to permanent
+-- public URLs. The block is safe to run repeatedly.
+ALTER TABLE migration_methods
+    ADD COLUMN IF NOT EXISTS image_url VARCHAR(2048),
+    ADD COLUMN IF NOT EXISTS video_url VARCHAR(2048);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'migration_methods'
+          AND column_name = 'image_key'
+    ) THEN
+        EXECUTE $sql$
+            UPDATE migration_methods
+            SET image_url = 'http://localhost:9000/data-migration-service/' || image_key
+            WHERE NULLIF(image_url, '') IS NULL
+              AND NULLIF(image_key, '') IS NOT NULL
+        $sql$;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'migration_methods'
+          AND column_name = 'video_key'
+    ) THEN
+        EXECUTE $sql$
+            UPDATE migration_methods
+            SET video_url = 'http://localhost:9000/data-migration-service/' || video_key
+            WHERE NULLIF(video_url, '') IS NULL
+              AND NULLIF(video_key, '') IS NOT NULL
+        $sql$;
+    END IF;
+END
+$$;
+
+ALTER TABLE migration_methods
+    DROP COLUMN IF EXISTS image_key,
+    DROP COLUMN IF EXISTS video_key;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_migration_methods_creator_draft
     ON migration_methods (creator_id)
@@ -48,8 +92,8 @@ INSERT INTO migration_methods (
     title,
     description,
     status,
-    image_key,
-    video_key,
+    image_url,
+    video_url,
     time_in_gb,
     reliability,
     creator_id
@@ -57,8 +101,8 @@ INSERT INTO migration_methods (
 SELECT seed.title,
        seed.description,
        seed.status,
-       seed.image_key,
-       seed.video_key,
+       seed.image_url,
+       seed.video_url,
        seed.time_in_gb,
        seed.reliability,
        users.id
@@ -68,8 +112,8 @@ FROM (
             'Онлайн-миграция',
             'Перенос данных в реальном времени с минимальным или нулевым временем простоя системы...',
             'published',
-            'online.jpeg',
-            'online.mp4',
+            'http://localhost:9000/data-migration-service/online.png',
+            'http://localhost:9000/data-migration-service/online.mp4',
             0.18,
             0.9980,
             'analyst@example.com'
@@ -78,8 +122,8 @@ FROM (
             'Офлайн-миграция',
             'Разовый пакетный перенос больших объемов данных во время планового технологического окна...',
             'published',
-            'offline.jpeg',
-            'offline.mp4',
+            'http://localhost:9000/data-migration-service/offline.png',
+            'http://localhost:9000/data-migration-service/offline.mp4',
             0.12,
             0.9990,
             'engineer@example.com'
@@ -88,8 +132,8 @@ FROM (
             'Репликация данных',
             'Организация постоянной синхронизации данных между исходной и целевой инфраструктурой...',
             'published',
-            'replication.jpeg',
-            'replication.mp4',
+            'http://localhost:9000/data-migration-service/replication.png',
+            'http://localhost:9000/data-migration-service/replication.mp4',
             0.08,
             0.9995,
             'student@example.com'
@@ -98,8 +142,8 @@ FROM (
             'Гибридная миграция',
             'Поэтапный перенос инфраструктуры, сочетающий офлайн-загрузку базового массива данных...',
             'published',
-            'hybrid.jpeg',
-            'hybrid.mp4',
+            'http://localhost:9000/data-migration-service/hybrid.png',
+            'http://localhost:9000/data-migration-service/hybrid.mp4',
             0.15,
             0.9970,
             'engineer@example.com'
@@ -108,8 +152,8 @@ FROM (
             'ETL-миграция',
             'Перенос данных с их параллельным изменением: заменой формата, изменением схемы базы данных...',
             'published',
-            'etl.jpeg',
-            'elt.mp4',
+            'http://localhost:9000/data-migration-service/elt.png',
+            'http://localhost:9000/data-migration-service/elt.mp4',
             0.25,
             0.9950,
             'analyst@example.com'
@@ -118,8 +162,8 @@ FROM (
             'Физическая миграция',
             'Перенос критически больших массивов данных с использованием физических защищенных накопителей...',
             'published',
-            'appliance.jpeg',
-            'physical.mp4',
+            'http://localhost:9000/data-migration-service/physical.png',
+            'http://localhost:9000/data-migration-service/physical.mp4',
             0.05,
             0.9999,
             'engineer@example.com'
@@ -128,8 +172,8 @@ FROM (
             'Аудит и валидация',
             'Комплексное сопровождение процесса миграции: от разработки стратегии до тестовой верификации...',
             'published',
-            'audit.jpeg',
-            'audit.mp4',
+            'http://localhost:9000/data-migration-service/audit.png',
+            'http://localhost:9000/data-migration-service/audit.mp4',
             0.10,
             0.9900,
             'student@example.com'
@@ -154,7 +198,7 @@ FROM (
             0.9500,
             'student@example.com'
         )
-) AS seed(title, description, status, image_key, video_key, time_in_gb, reliability, email)
+) AS seed(title, description, status, image_url, video_url, time_in_gb, reliability, email)
 JOIN users ON users.email = seed.email
 WHERE NOT EXISTS (
     SELECT 1

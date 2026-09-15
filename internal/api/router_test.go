@@ -21,7 +21,7 @@ func TestRouterContainsAssignmentRoutes(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(workingDirectory) })
 
 	gin.SetMode(gin.TestMode)
-	router := NewRouter(service.NewMigrationMethodService(nil, nil))
+	router := NewRouter(service.NewMigrationMethodService(nil))
 
 	want := map[string]struct{}{
 		"GET /feed":                {},

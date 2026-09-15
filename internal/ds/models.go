@@ -20,8 +20,8 @@ type MigrationMethod struct {
 	Title       string `gorm:"column:title;type:varchar(255);not null"`
 	Description string `gorm:"column:description;type:text;not null"`
 	Status      Status `gorm:"column:status;type:varchar(20);not null;default:'draft'"`
-	ImageKey    string `gorm:"column:image_key;type:varchar(512)"`
-	VideoKey    string `gorm:"column:video_key;type:varchar(512)"`
+	ImageURL    string `gorm:"column:image_url;type:varchar(2048)"`
+	VideoURL    string `gorm:"column:video_url;type:varchar(2048)"`
 
 	TimeInGb    float64 `gorm:"column:time_in_gb;not null"`
 	Reliability float64 `gorm:"column:reliability;type:numeric(5,4);not null"`

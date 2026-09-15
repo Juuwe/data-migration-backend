@@ -17,7 +17,7 @@
 1. Запустите инфраструктуру:
 
    ```bash
-   docker compose up -d postgres minio adminer
+   docker compose up -d postgres minio minio-init adminer
    ```
 
    При первом создании PostgreSQL-тома файл `migrations/init.sql` выполнится автоматически. Он создаст таблицы и тестовые записи. Для ручного применения миграции к пустой базе можно выполнить:
@@ -38,7 +38,7 @@
    - Adminer: <http://localhost:8080>;
    - MinIO Console: <http://localhost:9001>.
 
-Для входа в Adminer укажите систему `PostgreSQL`, сервер `postgres`, базу `data_migration`, пользователя `postgres` и пароль `password123`. MinIO использует пользователя `admin` и пароль `password123`.
+Для входа в Adminer укажите систему `PostgreSQL`, сервер `postgres`, базу `data_migration`, пользователя `postgres` и пароль `password123`. MinIO использует пользователя `admin` и пароль `password123`. Контейнер `minio-init` создаёт бакет `data-migration-service`, если его ещё нет, и включает для него анонимное чтение объектов, поэтому сохранённые в БД постоянные URL доступны браузеру без подписи.
 
 Если PostgreSQL-том был создан со старой версией схемы, и данные не нужны, сначала пересоздайте учебное окружение командой `docker compose down -v`, затем снова выполните первый шаг. Эта команда удаляет данные PostgreSQL из Docker-тома.
 
@@ -52,10 +52,6 @@
 | `DB_HOST`, `DB_PORT` | адрес PostgreSQL | `localhost`, `5432` |
 | `DB_USER`, `DB_PASSWORD`, `DB_NAME` | учетные данные и база | `postgres`, `postgres`, `data_migration` |
 | `DB_SSL_MODE`, `DB_TIMEZONE` | параметры подключения | `disable`, `Europe/Moscow` |
-| `MINIO_ENDPOINT` | адрес MinIO для SDK | `localhost:9000` |
-| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | учетные данные MinIO | `admin`, `password123` |
-| `MINIO_BUCKET` | бакет с медиа | `data-migration-service` |
-| `MINIO_BASE_URL`, `MINIO_USE_SSL` | публичный адрес и TLS | `http://localhost:9000`, `false` |
 
 ## HTTP-маршруты
 
@@ -74,11 +70,11 @@
 
 ## Работа с данными
 
-Модели находятся в `internal/ds/models.go`, а стартовая SQL-схема — в `migrations/init.sql`. Схема содержит таблицы `users`, `migration_methods` и `migration_method_likes`. Все внешние ключи используют `ON DELETE RESTRICT`; каскадного удаления нет. Частичный уникальный индекс гарантирует не более одного черновика у пользователя.
+Модели находятся в `internal/ds/models.go`, а стартовая SQL-схема — в `migrations/init.sql`. Схема содержит таблицы `users`, `migration_methods` и `migration_method_likes`. Поля `image_url` и `video_url` хранят готовые публичные URL объектов MinIO; приложение не запрашивает подписанные ссылки и не обращается к MinIO SDK при чтении карточек. Все внешние ключи используют `ON DELETE RESTRICT`; каскадного удаления нет. Частичный уникальный индекс гарантирует не более одного черновика у пользователя.
 
 Получение, фильтрация, создание и публикация выполняются через GORM. Поле `rawDB` намеренно сохранено в `PosrtgresMigrationMethodsRepo` и используется только методом `SoftDeleteSQL` для требуемого заданием SQL `UPDATE`.
 
-Загрузка файлов не реализована. File inputs сохранены в форме, но не имеют имени и не отправляются на сервер. Для пустых или недоступных ключей используются локальные `/static/images/default.svg` и `/static/videos/default.mp4`.
+Загрузка файлов не реализована. File inputs сохранены в форме, но не имеют имени и не отправляются на сервер. Для пустых URL используются локальные `/static/images/default.svg` и `/static/videos/default.mp4`.
 
 ## Тесты
 

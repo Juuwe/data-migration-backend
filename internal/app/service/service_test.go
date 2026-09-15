@@ -68,18 +68,9 @@ func (r *repositoryStub) SoftDeleteSQL(_ context.Context, id int64) error {
 	return r.softDeleteErr
 }
 
-type storageStub struct {
-	urls map[string]string
-	err  error
-}
-
-func (s storageStub) GetURL(_ context.Context, key string) (string, error) {
-	return s.urls[key], s.err
-}
-
 func TestGetDraftReturnsMissingDraftWithoutError(t *testing.T) {
 	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	_, exists, err := svc.GetDraft(context.Background(), 1)
 
@@ -94,7 +85,7 @@ func TestGetDraftReturnsMissingDraftWithoutError(t *testing.T) {
 func TestGetDraftPropagatesRepositoryError(t *testing.T) {
 	wantErr := errors.New("database is unavailable")
 	repo := &repositoryStub{draftErr: wantErr}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	_, _, err := svc.GetDraft(context.Background(), 1)
 
@@ -105,7 +96,7 @@ func TestGetDraftPropagatesRepositoryError(t *testing.T) {
 
 func TestGetByIDUsesDefaultMedia(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	view, err := svc.GetByID(context.Background(), 7)
 
@@ -122,7 +113,7 @@ func TestGetByIDUsesDefaultMedia(t *testing.T) {
 
 func TestGetByIDRejectsDeletedMethod(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusDeleted}}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	_, err := svc.GetByID(context.Background(), 7)
 
@@ -136,7 +127,7 @@ func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 		methodErr: ds.ErrMigrationMethodNotFound,
 		published: []ds.MigrationMethod{{ID: 3, Status: ds.StatusPublished}},
 	}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	view, err := svc.GetNextPublishedAfterID(context.Background(), 5)
 
@@ -148,9 +139,36 @@ func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 	}
 }
 
+func TestGetPublishedUsesStoredMediaURLs(t *testing.T) {
+	repo := &repositoryStub{
+		published: []ds.MigrationMethod{
+			{
+				ID:       1,
+				Status:   ds.StatusPublished,
+				ImageURL: "http://localhost:9000/data-migration-service/first.jpg",
+				VideoURL: "http://localhost:9000/data-migration-service/first.mp4",
+			},
+			{ID: 2, Status: ds.StatusPublished},
+		},
+	}
+	svc := NewMigrationMethodService(repo)
+
+	views, err := svc.GetPublished(context.Background())
+
+	if err != nil {
+		t.Fatalf("GetPublished() error = %v", err)
+	}
+	if views[0].ImageURL != "http://localhost:9000/data-migration-service/first.jpg" || views[0].VideoURL != "http://localhost:9000/data-migration-service/first.mp4" {
+		t.Errorf("first view URLs = %q, %q", views[0].ImageURL, views[0].VideoURL)
+	}
+	if views[1].ImageURL != DefaultImageURL || views[1].VideoURL != DefaultVideoURL {
+		t.Errorf("missing media URLs = %q, %q; want defaults", views[1].ImageURL, views[1].VideoURL)
+	}
+}
+
 func TestCreateDraftMethod(t *testing.T) {
 	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	err := svc.CreateDraftMethod(context.Background(), "  Быстрая миграция  ", 3)
 
@@ -170,7 +188,7 @@ func TestCreateDraftMethod(t *testing.T) {
 
 func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
 	repo := &repositoryStub{draft: ds.MigrationMethod{ID: 1, Status: ds.StatusDraft}}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	err := svc.CreateDraftMethod(context.Background(), "Еще один", 1)
 
@@ -184,7 +202,7 @@ func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
 
 func TestPublishDraft(t *testing.T) {
 	repo := &repositoryStub{draft: ds.MigrationMethod{ID: 2, Status: ds.StatusDraft}}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	err := svc.PublishDraft(context.Background(), 1, "  Проверенное описание  ", 0.25, 0.999)
 
@@ -217,7 +235,7 @@ func TestPublishDraftValidatesFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &repositoryStub{draft: ds.MigrationMethod{ID: 2, Status: ds.StatusDraft}}
-			svc := NewMigrationMethodService(repo, storageStub{})
+			svc := NewMigrationMethodService(repo)
 
 			err := svc.PublishDraft(context.Background(), 1, tt.description, tt.timeInGB, tt.reliability)
 
@@ -233,7 +251,7 @@ func TestPublishDraftValidatesFields(t *testing.T) {
 
 func TestDeleteMethodUsesRepositorySQLMethod(t *testing.T) {
 	repo := &repositoryStub{}
-	svc := NewMigrationMethodService(repo, storageStub{})
+	svc := NewMigrationMethodService(repo)
 
 	if err := svc.DeleteMethod(context.Background(), 9); err != nil {
 		t.Fatalf("DeleteMethod() error = %v", err)

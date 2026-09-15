@@ -7,9 +7,6 @@ import (
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
 	"github.com/Juuwe/data-migration-backend/internal/config"
 	"github.com/Juuwe/data-migration-backend/internal/repository"
-	miniostorage "github.com/Juuwe/data-migration-backend/internal/storage/minio"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 func main() {
@@ -31,16 +28,7 @@ func main() {
 		log.Fatalf("Ошибка подключения к PostgreSQL: %v", err)
 	}
 
-	minioClient, err := minio.New(cfg.MinIO.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.MinIO.AccessKey, cfg.MinIO.SecretKey, ""),
-		Secure: cfg.MinIO.UseSSL,
-	})
-	if err != nil {
-		log.Fatalf("Ошибка настройки MinIO: %v", err)
-	}
-
-	storage := miniostorage.New(minioClient, cfg.MinIO.Bucket, cfg.MinIO.BaseURL)
-	svc := service.NewMigrationMethodService(repo, storage)
+	svc := service.NewMigrationMethodService(repo)
 
 	r := api.NewRouter(svc)
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadReadsDotEnv(t *testing.T) {
-	const key = "MINIO_BUCKET"
+	const key = "WEB_PORT"
 	original, existed := os.LookupEnv(key)
 	if err := os.Unsetenv(key); err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestLoadReadsDotEnv(t *testing.T) {
 	})
 
 	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte("MINIO_BUCKET=test-bucket\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("WEB_PORT=9090\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -30,8 +30,8 @@ func TestLoadReadsDotEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MinIO.Bucket != "test-bucket" {
-		t.Fatalf("MinIO.Bucket = %q, want test-bucket", cfg.MinIO.Bucket)
+	if cfg.WebServer.Port != 9090 {
+		t.Fatalf("WebServer.Port = %d, want 9090", cfg.WebServer.Port)
 	}
 }
 

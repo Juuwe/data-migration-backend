@@ -21,7 +21,7 @@
       <div class="upload-field-group">
         <label class="form-label">Видео</label>
         <div class="media-preview-container">
-          {{if .Data.Draft.VideoKey}}
+          {{if ne .Data.Draft.VideoURL "/static/videos/default.mp4"}}
             <video
               src="{{.Data.Draft.VideoURL}}"
               poster="/static/images/default.svg"

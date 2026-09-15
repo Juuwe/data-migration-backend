@@ -30,6 +30,9 @@ go.work.sum
 /bin/
 /pkg/
 
+minio_data/
+minio_config/
+
 # Editor/IDE
 # .idea/
 # .vscode/

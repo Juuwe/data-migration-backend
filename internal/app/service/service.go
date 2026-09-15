@@ -30,50 +30,29 @@ type MigrationMethodRepository interface {
 	SoftDeleteSQL(ctx context.Context, id int64) error
 }
 
-type MigrationMethodObjectStorage interface {
-	GetURL(ctx context.Context, objectKey string) (string, error)
-}
-
 type MigrationMethodService struct {
-	repo    MigrationMethodRepository
-	storage MigrationMethodObjectStorage
+	repo MigrationMethodRepository
 }
 
-func NewMigrationMethodService(repo MigrationMethodRepository, storage MigrationMethodObjectStorage) *MigrationMethodService {
-	return &MigrationMethodService{
-		repo:    repo,
-		storage: storage,
-	}
+func NewMigrationMethodService(repo MigrationMethodRepository) *MigrationMethodService {
+	return &MigrationMethodService{repo: repo}
 }
 
 type MigrationMethodView struct {
 	ds.MigrationMethod
-	VideoURL   string
-	ImageURL   string
 	LikesCount int
 }
 
-func (s *MigrationMethodService) buildView(ctx context.Context, m *ds.MigrationMethod, likesCount int) MigrationMethodView {
-	videoURL, err := s.storage.GetURL(ctx, m.VideoKey)
-	if err != nil {
-		log.Printf("[ERROR] Failed to get video URL for key '%s': %v", m.VideoKey, err)
+func buildView(m ds.MigrationMethod, likesCount int) MigrationMethodView {
+	if m.VideoURL == "" {
+		m.VideoURL = DefaultVideoURL
 	}
-	if videoURL == "" {
-		videoURL = DefaultVideoURL
-	}
-
-	imageURL, err := s.storage.GetURL(ctx, m.ImageKey)
-	if err != nil {
-		log.Printf("[ERROR] Failed to get image URL for key '%s': %v", m.ImageKey, err)
-	}
-	if imageURL == "" {
-		imageURL = DefaultImageURL
+	if m.ImageURL == "" {
+		m.ImageURL = DefaultImageURL
 	}
 
 	return MigrationMethodView{
-		MigrationMethod: *m,
-		VideoURL:        videoURL,
-		ImageURL:        imageURL,
+		MigrationMethod: m,
 		LikesCount:      likesCount,
 	}
 }
@@ -84,7 +63,7 @@ func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.Migr
 		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
 	}
 
-	return s.buildView(ctx, m, likesCount), nil
+	return buildView(*m, likesCount), nil
 }
 
 func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod) ([]MigrationMethodView, error) {
@@ -105,7 +84,7 @@ func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds
 	views := make([]MigrationMethodView, len(methods))
 	for i := range methods {
 		id := methods[i].ID
-		views[i] = s.buildView(ctx, &methods[i], likesMap[id])
+		views[i] = buildView(methods[i], likesMap[id])
 	}
 
 	return views, nil
@@ -119,7 +98,7 @@ func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) 
 		}
 		return MigrationMethodView{}, false, err
 	}
-	return s.buildView(ctx, &draft, 0), true, nil
+	return buildView(draft, 0), true, nil
 }
 
 func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationMethodView, error) {

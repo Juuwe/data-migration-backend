@@ -13,7 +13,6 @@ import (
 type Config struct {
 	WebServer WebServer
 	Database  Database
-	MinIO     MinIO
 }
 
 type WebServer struct {
@@ -50,15 +49,6 @@ func (c Database) DSN() string {
 	}).String()
 }
 
-type MinIO struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	BaseURL   string
-	UseSSL    bool
-}
-
 func Load(dotEnvPath string) (Config, error) {
 	if err := loadDotEnv(dotEnvPath); err != nil {
 		return Config{}, err
@@ -72,11 +62,6 @@ func Load(dotEnvPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	minioUseSSL, err := envBool("MINIO_USE_SSL", false)
-	if err != nil {
-		return Config{}, err
-	}
-
 	return Config{
 		WebServer: WebServer{
 			Host: envString("WEB_HOST", "0.0.0.0"),
@@ -90,14 +75,6 @@ func Load(dotEnvPath string) (Config, error) {
 			Name:     envString("DB_NAME", "data_migration"),
 			SSLMode:  envString("DB_SSL_MODE", "disable"),
 			Timezone: envString("DB_TIMEZONE", "Europe/Moscow"),
-		},
-		MinIO: MinIO{
-			Endpoint:  envString("MINIO_ENDPOINT", "localhost:9000"),
-			AccessKey: envString("MINIO_ACCESS_KEY", "admin"),
-			SecretKey: envString("MINIO_SECRET_KEY", "password123"),
-			Bucket:    envString("MINIO_BUCKET", "data-migration-service"),
-			BaseURL:   envString("MINIO_BASE_URL", "http://localhost:9000"),
-			UseSSL:    minioUseSSL,
 		},
 	}, nil
 }
@@ -156,19 +133,6 @@ func envInt(key string, fallback int) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < 1 || parsed > 65535 {
 		return 0, fmt.Errorf("%s must be a valid port", key)
-	}
-	return parsed, nil
-}
-
-func envBool(key string, fallback bool) (bool, error) {
-	value, ok := os.LookupEnv(key)
-	if !ok {
-		return fallback, nil
-	}
-
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf("%s must be a boolean: %w", key, err)
 	}
 	return parsed, nil
 }
