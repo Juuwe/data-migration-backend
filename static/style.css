@@ -246,46 +246,6 @@ body {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
 }
 
-.feed-empty-state {
-  position: absolute;
-  inset: 0 0 90px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 32px;
-  color: #ffffff;
-  text-align: center;
-}
-
-.feed-empty-state p {
-  max-width: 290px;
-  color: #aeb5be;
-  font-size: 14px;
-  line-height: 20px;
-}
-
-.feed-empty-icon {
-  color: #2a9fff;
-  font-size: 34px;
-}
-
-.feed-empty-link {
-  margin-top: 6px;
-  padding: 9px 14px;
-  color: #ffffff;
-  background: #2a9fff;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.feed-empty-link:hover {
-  background: #1a7cd8;
-}
-
 /* --- Нижняя навигация --- */
 .bottom-nav {
   position: absolute;

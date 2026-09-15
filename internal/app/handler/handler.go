@@ -95,7 +95,7 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		var published []service.MigrationMethodView
 		published, err = h.s.GetPublished(ctx)
 		if err != nil || len(published) == 0 {
-			c.HTML(http.StatusNotFound, "feed", NewPageContext("Ошибка", "feed", false, FeedPageData{}))
+			c.AbortWithStatus(http.StatusNotFound)
 			return
 		}
 		method = published[0]
@@ -103,7 +103,7 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		var id int64
 		id, err = strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			c.HTML(http.StatusBadRequest, "feed", NewPageContext("Ошибка ID", "feed", false, FeedPageData{}))
+			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
 
@@ -114,7 +114,7 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		}
 
 		if err != nil {
-			c.HTML(http.StatusNotFound, "feed", NewPageContext("Не найдено", "feed", false, FeedPageData{}))
+			c.AbortWithStatus(http.StatusNotFound)
 			return
 		}
 	}

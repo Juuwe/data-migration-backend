@@ -1,7 +1,6 @@
 {{template "base" .}}
 
 {{define "content"}}
-{{if gt .Data.Method.ID 0}}
 {{if .Data.Method.VideoURL}}
 <div class="media-container">
   <video class="feed-video" autoplay loop muted playsinline src="{{.Data.Method.VideoURL}}">
@@ -58,12 +57,4 @@
     </div>
   </div>
 </div>
-{{else}}
-<section class="feed-empty-state">
-  <i class="bi bi-exclamation-circle feed-empty-icon"></i>
-  <h2>Услуга не найдена</h2>
-  <p>В ленте нет доступной карточки с таким идентификатором.</p>
-  <a href="/feed" class="feed-empty-link">Вернуться в ленту</a>
-</section>
-{{end}}
 {{end}}
