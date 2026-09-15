@@ -21,25 +21,14 @@
       <div class="upload-field-group">
         <label class="form-label">Видео</label>
         <div class="media-preview-container">
-          {{if ne .Data.Draft.VideoURL "/static/videos/default.mp4"}}
-            <video
-              src="{{.Data.Draft.VideoURL}}"
-              poster="/static/images/default.svg"
-              class="preview-media"
-              autoplay
-              loop
-              muted
-              playsinline
-            ></video>
-          {{else}}
-            <div class="video-fallback" role="img" aria-label="Видео услуги по умолчанию">
-              <img src="/static/images/default.svg" alt="" class="preview-media">
-              <span class="video-fallback-label">
-                <i class="bi bi-camera-video"></i>
-                Видео по умолчанию
-              </span>
-            </div>
-          {{end}}
+          <video
+            src="{{.Data.Draft.VideoURL}}"
+            class="preview-media"
+            autoplay
+            loop
+            muted
+            playsinline
+          ></video>
         </div>
       </div>
     </div>

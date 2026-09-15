@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -11,9 +13,12 @@ import (
 )
 
 const (
-	DefaultImageURL = "/static/images/default.svg"
-	DefaultVideoURL = "/static/videos/default.mp4"
+	DefaultImageURL   = "/static/images/default.svg"
+	DefaultVideoURL   = "/static/videos/default.mp4"
+	mediaCheckTimeout = 2 * time.Second
 )
+
+var mediaHTTPClient = &http.Client{Timeout: mediaCheckTimeout}
 
 type MigrationMethodRepository interface {
 	FindByID(ctx context.Context, id int64) (ds.MigrationMethod, error)
@@ -31,11 +36,15 @@ type MigrationMethodRepository interface {
 }
 
 type MigrationMethodService struct {
-	repo MigrationMethodRepository
+	repo              MigrationMethodRepository
+	mediaURLAvailable func(context.Context, string) bool
 }
 
 func NewMigrationMethodService(repo MigrationMethodRepository) *MigrationMethodService {
-	return &MigrationMethodService{repo: repo}
+	return &MigrationMethodService{
+		repo:              repo,
+		mediaURLAvailable: isMediaURLAvailable,
+	}
 }
 
 type MigrationMethodView struct {
@@ -43,13 +52,43 @@ type MigrationMethodView struct {
 	LikesCount int
 }
 
-func buildView(m ds.MigrationMethod, likesCount int) MigrationMethodView {
-	if m.VideoURL == "" {
-		m.VideoURL = DefaultVideoURL
+func isMediaURLAvailable(ctx context.Context, rawURL string) bool {
+	parsedURL, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return false
 	}
-	if m.ImageURL == "" {
-		m.ImageURL = DefaultImageURL
+
+	// Локальные SSR-файлы проверяются самим HTTP-сервером приложения.
+	if parsedURL.Scheme == "" {
+		return strings.HasPrefix(parsedURL.Path, "/")
 	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
+	if err != nil {
+		return false
+	}
+	response, err := mediaHTTPClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+
+	return response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusBadRequest
+}
+
+func (s *MigrationMethodService) resolveMediaURL(ctx context.Context, rawURL, fallbackURL string) string {
+	if strings.TrimSpace(rawURL) == "" || !s.mediaURLAvailable(ctx, rawURL) {
+		return fallbackURL
+	}
+	return rawURL
+}
+
+func (s *MigrationMethodService) buildView(ctx context.Context, m ds.MigrationMethod, likesCount int) MigrationMethodView {
+	m.VideoURL = s.resolveMediaURL(ctx, m.VideoURL, DefaultVideoURL)
+	m.ImageURL = s.resolveMediaURL(ctx, m.ImageURL, DefaultImageURL)
 
 	return MigrationMethodView{
 		MigrationMethod: m,
@@ -63,7 +102,7 @@ func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.Migr
 		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
 	}
 
-	return buildView(*m, likesCount), nil
+	return s.buildView(ctx, *m, likesCount), nil
 }
 
 func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod) ([]MigrationMethodView, error) {
@@ -84,7 +123,7 @@ func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds
 	views := make([]MigrationMethodView, len(methods))
 	for i := range methods {
 		id := methods[i].ID
-		views[i] = buildView(methods[i], likesMap[id])
+		views[i] = s.buildView(ctx, methods[i], likesMap[id])
 	}
 
 	return views, nil
@@ -98,7 +137,7 @@ func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) 
 		}
 		return MigrationMethodView{}, false, err
 	}
-	return buildView(draft, 0), true, nil
+	return s.buildView(ctx, draft, 0), true, nil
 }
 
 func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationMethodView, error) {
@@ -136,8 +175,8 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id int64) (Migrati
 		return MigrationMethodView{}, err
 	}
 
-	if m.IsDeleted() {
-		return MigrationMethodView{}, errors.New("метод удален")
+	if !m.IsPublished() {
+		return MigrationMethodView{}, ds.ErrMigrationMethodNotFound
 	}
 
 	return s.buildSingleView(ctx, &m)

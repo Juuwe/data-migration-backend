@@ -3,10 +3,17 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type repositoryStub struct {
 	draft         ds.MigrationMethod
@@ -122,6 +129,65 @@ func TestGetByIDRejectsDeletedMethod(t *testing.T) {
 	}
 }
 
+func TestGetByIDRejectsDraftMethod(t *testing.T) {
+	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusDraft}}
+	svc := NewMigrationMethodService(repo)
+
+	_, err := svc.GetByID(context.Background(), 7)
+
+	if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
+		t.Fatalf("GetByID() error = %v, want %v", err, ds.ErrMigrationMethodNotFound)
+	}
+}
+
+func TestGetByIDUsesDefaultMediaWhenStoredURLsAreUnavailable(t *testing.T) {
+	repo := &repositoryStub{method: ds.MigrationMethod{
+		ID:       7,
+		Status:   ds.StatusPublished,
+		ImageURL: "http://minio.invalid/missing.png",
+		VideoURL: "http://minio.invalid/missing.mp4",
+	}}
+	svc := NewMigrationMethodService(repo)
+	svc.mediaURLAvailable = func(context.Context, string) bool { return false }
+
+	view, err := svc.GetByID(context.Background(), 7)
+
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if view.ImageURL != DefaultImageURL {
+		t.Errorf("ImageURL = %q, want %q", view.ImageURL, DefaultImageURL)
+	}
+	if view.VideoURL != DefaultVideoURL {
+		t.Errorf("VideoURL = %q, want %q", view.VideoURL, DefaultVideoURL)
+	}
+}
+
+func TestIsMediaURLAvailableChecksHTTPStatus(t *testing.T) {
+	statusCode := http.StatusOK
+	previousClient := mediaHTTPClient
+	mediaHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodHead {
+			t.Fatalf("request method = %s, want %s", req.Method, http.MethodHead)
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})}
+	t.Cleanup(func() { mediaHTTPClient = previousClient })
+
+	if !isMediaURLAvailable(context.Background(), "http://minio.test/available.png") {
+		t.Fatal("isMediaURLAvailable() = false for an available object")
+	}
+
+	statusCode = http.StatusNotFound
+	if isMediaURLAvailable(context.Background(), "http://minio.test/missing.png") {
+		t.Fatal("isMediaURLAvailable() = true for a missing object")
+	}
+}
+
 func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 	repo := &repositoryStub{
 		methodErr: ds.ErrMigrationMethodNotFound,
@@ -152,6 +218,7 @@ func TestGetPublishedUsesStoredMediaURLs(t *testing.T) {
 		},
 	}
 	svc := NewMigrationMethodService(repo)
+	svc.mediaURLAvailable = func(context.Context, string) bool { return true }
 
 	views, err := svc.GetPublished(context.Background())
 

@@ -85,7 +85,9 @@ INSERT INTO users (email)
 VALUES
     ('student@example.com'),
     ('analyst@example.com'),
-    ('engineer@example.com')
+    ('engineer@example.com'),
+    ('architect@example.com'),
+    ('reviewer@example.com')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO migration_methods (
@@ -111,12 +113,12 @@ FROM (
         (
             'Онлайн-миграция',
             'Перенос данных в реальном времени с минимальным или нулевым временем простоя системы...',
-            'published',
+            'draft',
             'http://localhost:9000/data-migration-service/online.png',
             'http://localhost:9000/data-migration-service/online.mp4',
             0.18,
             0.9980,
-            'analyst@example.com'
+            'student@example.com'
         ),
         (
             'Офлайн-миграция',
@@ -179,16 +181,6 @@ FROM (
             'student@example.com'
         ),
         (
-            'Новый метод миграции',
-            'Черновик описания...',
-            'draft',
-            NULL,
-            NULL,
-            0,
-            0,
-            'student@example.com'
-        ),
-        (
             'Архивная миграция',
             'Карточка логически удаленной услуги...',
             'deleted',
@@ -211,12 +203,21 @@ INSERT INTO migration_method_likes (user_id, method_id)
 SELECT users.id, methods.id
 FROM (
     VALUES
-        ('student@example.com', 'Онлайн-миграция'),
-        ('analyst@example.com', 'Онлайн-миграция'),
-        ('engineer@example.com', 'Офлайн-миграция'),
         ('student@example.com', 'Репликация данных'),
+        ('analyst@example.com', 'Гибридная миграция'),
+        ('architect@example.com', 'Гибридная миграция'),
         ('analyst@example.com', 'ETL-миграция'),
-        ('engineer@example.com', 'Физическая миграция')
+        ('engineer@example.com', 'ETL-миграция'),
+        ('reviewer@example.com', 'ETL-миграция'),
+        ('student@example.com', 'Физическая миграция'),
+        ('analyst@example.com', 'Физическая миграция'),
+        ('engineer@example.com', 'Физическая миграция'),
+        ('architect@example.com', 'Физическая миграция'),
+        ('student@example.com', 'Аудит и валидация'),
+        ('analyst@example.com', 'Аудит и валидация'),
+        ('engineer@example.com', 'Аудит и валидация'),
+        ('architect@example.com', 'Аудит и валидация'),
+        ('reviewer@example.com', 'Аудит и валидация')
 ) AS seed(email, title)
 JOIN users ON users.email = seed.email
 JOIN migration_methods methods ON methods.title = seed.title
