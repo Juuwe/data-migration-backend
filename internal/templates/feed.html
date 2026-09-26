@@ -14,11 +14,11 @@
     <h2 class="info-title">{{.Data.Method.Title}}</h2>
     <details class="expandable-text">
       <summary class="text-preview">
-        {{.Data.Method.Description}}
+        {{with .Data.Method.Description}}{{.}}{{end}}
         <span class="more-btn">больше</span>
       </summary>
       <div class="full-text">
-        {{.Data.Method.Description}}
+        {{with .Data.Method.Description}}{{.}}{{end}}
       </div>
     </details>
   </section>
@@ -44,15 +44,13 @@
   <!-- Характеристики -->
   <div class="tags-group">
     <div class="tag-badge">
-      <i class="bi bi-clock tag-icon"></i>
+      <i class="bi bi-clock tag-icon" aria-hidden="true"></i>
+      <span class="visually-hidden">Время на гигабайт: </span>
       <span class="tag-text">{{printf "%.2f" .Data.Method.TimeInGb}} сек/Гб</span>
     </div>
-    <div
-      class="tag-badge"
-      title="Коэффициент надёжности"
-      aria-label="Коэффициент надёжности: {{printf "%.3f" .Data.Method.Reliability}}"
-    >
-      <i class="bi bi-shield-check tag-icon"></i>
+    <div class="tag-badge" title="Коэффициент надёжности">
+      <i class="bi bi-shield-check tag-icon" aria-hidden="true"></i>
+      <span class="visually-hidden">Коэффициент надёжности: </span>
       <span class="tag-text">{{printf "%.3f" .Data.Method.Reliability}}</span>
     </div>
   </div>

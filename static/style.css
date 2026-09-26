@@ -168,37 +168,52 @@ body {
 .tags-group {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  margin-top: 6px;
-  z-index: 5;
+  align-self: flex-end;
+  width: max-content;
+  padding: 3px 7px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
 .tag-badge {
-  width: 110px;
-  height: 28px;
-  background: rgba(255, 255, 255, 0.95) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 10px;
-  padding: 0 8px;
+  min-height: 22px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tag-badge + .tag-badge {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .tag-text {
-  color: #111111 !important;
+  color: #111111;
   font-size: 12px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .tag-icon {
+  width: 14px;
+  color: #2a9fff;
   font-size: 13px;
-  color: #2a9fff !important;
+  text-align: center;
+  flex: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .action-item {
@@ -376,20 +391,21 @@ body {
 
 .media-upload-grid {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 12px;
 }
 
 .upload-field-group {
-  width: 195px;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .upload-card {
   position: relative;
-  width: 195px;
-  height: 220px;
+  width: 100%;
+  height: 140px;
   background: #f3faff;
   border: 2px dashed #2a9fff;
   border-radius: 12px;
@@ -659,10 +675,10 @@ body {
   width: 100%;
   height: 28px;
   padding: 0;
-  border: 1px solid #ffd3d3;
+  border: none;
   border-radius: 8px;
-  color: #d52b2b;
-  background: #fff5f5;
+  color: #ffffff;
+  background: #2a9fff;
   font-family: inherit;
   font-size: 10.5px;
   font-weight: 600;
@@ -671,13 +687,11 @@ body {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .delete-btn:hover {
-  color: #ffffff;
-  background: #e44343;
-  border-color: #e44343;
+  background: #1a7cd8;
 }
 
 .card-media {
@@ -744,8 +758,8 @@ body {
 
 .media-preview-container {
   position: relative;
-  width: 195px;
-  height: 220px;
+  width: 100%;
+  height: 130px;
   background: #e9eef4;
   border-radius: 12px;
   overflow: hidden;

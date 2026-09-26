@@ -49,7 +49,9 @@ func NewMigrationMethodService(repo MigrationMethodRepository) *MigrationMethodS
 
 type MigrationMethodView struct {
 	ds.MigrationMethod
-	LikesCount int
+	LikesCount  int
+	TimeInGb    float64
+	Reliability float64
 }
 
 func isMediaURLAvailable(ctx context.Context, rawURL string) bool {
@@ -90,10 +92,17 @@ func (s *MigrationMethodService) buildView(ctx context.Context, m ds.MigrationMe
 	m.VideoURL = s.resolveMediaURL(ctx, m.VideoURL, DefaultVideoURL)
 	m.ImageURL = s.resolveMediaURL(ctx, m.ImageURL, DefaultImageURL)
 
-	return MigrationMethodView{
+	view := MigrationMethodView{
 		MigrationMethod: m,
 		LikesCount:      likesCount,
 	}
+	if m.TimeInGb != nil {
+		view.TimeInGb = *m.TimeInGb
+	}
+	if m.Reliability != nil {
+		view.Reliability = *m.Reliability
+	}
+	return view
 }
 
 func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.MigrationMethod) (MigrationMethodView, error) {
@@ -209,11 +218,9 @@ func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title st
 	}
 
 	m := ds.MigrationMethod{
-		Title:       title,
-		Description: "",
-		Status:      ds.StatusDraft,
-		CreatorID:   creatorID,
-		FormedAt:    time.Now(),
+		Title:     title,
+		Status:    ds.StatusDraft,
+		CreatorID: creatorID,
 	}
 	return s.repo.Create(ctx, &m)
 }
@@ -238,11 +245,12 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 		return err
 	}
 
-	draft.Description = desc
-	draft.TimeInGb = timeInGb
-	draft.Reliability = reliability
+	draft.Description = &desc
+	draft.TimeInGb = &timeInGb
+	draft.Reliability = &reliability
 	draft.Status = ds.StatusPublished
-	draft.FormedAt = time.Now()
+	publishedAt := time.Now()
+	draft.PublishedAt = &publishedAt
 
 	return s.repo.Update(ctx, &draft)
 }

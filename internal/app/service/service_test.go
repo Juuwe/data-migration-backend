@@ -251,6 +251,9 @@ func TestCreateDraftMethod(t *testing.T) {
 	if repo.created.Status != ds.StatusDraft || repo.created.CreatorID != 3 {
 		t.Errorf("created method = %+v", *repo.created)
 	}
+	if repo.created.Description != nil || repo.created.TimeInGb != nil || repo.created.Reliability != nil || repo.created.PublishedAt != nil {
+		t.Errorf("draft fields must be nil: %+v", *repo.created)
+	}
 }
 
 func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
@@ -282,8 +285,11 @@ func TestPublishDraft(t *testing.T) {
 	if repo.updated.Status != ds.StatusPublished {
 		t.Errorf("updated status = %q", repo.updated.Status)
 	}
-	if repo.updated.Description != "Проверенное описание" {
-		t.Errorf("updated description = %q", repo.updated.Description)
+	if repo.updated.Description == nil {
+		t.Fatal("updated description is nil")
+	}
+	if *repo.updated.Description != "Проверенное описание" {
+		t.Errorf("updated description = %q", *repo.updated.Description)
 	}
 }
 

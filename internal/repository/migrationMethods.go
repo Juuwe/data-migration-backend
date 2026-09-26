@@ -179,11 +179,11 @@ func (r *PosrtgresMigrationMethodsRepo) Create(ctx context.Context, m *ds.Migrat
 
 func (r *PosrtgresMigrationMethodsRepo) Update(ctx context.Context, m *ds.MigrationMethod) error {
 	result := r.db.WithContext(ctx).Model(m).Updates(map[string]any{
-		"description": m.Description,
-		"time_in_gb":  m.TimeInGb,
-		"reliability": m.Reliability,
-		"status":      m.Status,
-		"formed_at":   m.FormedAt,
+		"description":  m.Description,
+		"time_in_gb":   m.TimeInGb,
+		"reliability":  m.Reliability,
+		"status":       m.Status,
+		"published_at": m.PublishedAt,
 	})
 	if result.Error != nil {
 		return fmt.Errorf("update migration method: %w", result.Error)

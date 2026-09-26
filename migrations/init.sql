@@ -1,21 +1,26 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
+UPDATE users SET password = '!' WHERE password IS NULL;
+ALTER TABLE users ALTER COLUMN password SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS migration_methods (
     id BIGSERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
+    description TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'deleted')),
     image_url VARCHAR(2048),
     video_url VARCHAR(2048),
-    time_in_gb NUMERIC(10, 2) NOT NULL DEFAULT 0,
-    reliability NUMERIC(5, 4) NOT NULL DEFAULT 0,
+    time_in_gb NUMERIC(10, 2),
+    reliability NUMERIC(5, 4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    formed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMPTZ,
     creator_id BIGINT NOT NULL,
     CONSTRAINT fk_migration_methods_creator
         FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT
@@ -25,7 +30,17 @@ CREATE TABLE IF NOT EXISTS migration_methods (
 -- public URLs. The block is safe to run repeatedly.
 ALTER TABLE migration_methods
     ADD COLUMN IF NOT EXISTS image_url VARCHAR(2048),
-    ADD COLUMN IF NOT EXISTS video_url VARCHAR(2048);
+    ADD COLUMN IF NOT EXISTS video_url VARCHAR(2048),
+    ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+ALTER TABLE migration_methods
+    ALTER COLUMN description DROP NOT NULL,
+    ALTER COLUMN description DROP DEFAULT,
+    ALTER COLUMN time_in_gb DROP NOT NULL,
+    ALTER COLUMN time_in_gb DROP DEFAULT,
+    ALTER COLUMN reliability DROP NOT NULL,
+    ALTER COLUMN reliability DROP DEFAULT,
+    ALTER COLUMN published_at DROP NOT NULL;
 
 DO $$
 BEGIN
@@ -58,6 +73,21 @@ BEGIN
               AND NULLIF(video_key, '') IS NOT NULL
         $sql$;
     END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'migration_methods'
+          AND column_name = 'formed_at'
+    ) THEN
+        EXECUTE $sql$
+            UPDATE migration_methods
+            SET published_at = formed_at
+            WHERE published_at IS NULL AND status <> 'draft'
+        $sql$;
+        EXECUTE 'ALTER TABLE migration_methods DROP COLUMN formed_at';
+    END IF;
 END
 $$;
 
@@ -68,6 +98,9 @@ ALTER TABLE migration_methods
 CREATE UNIQUE INDEX IF NOT EXISTS ux_migration_methods_creator_draft
     ON migration_methods (creator_id)
     WHERE status = 'draft';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_migration_methods_title
+    ON migration_methods (title);
 
 CREATE TABLE IF NOT EXISTS migration_method_likes (
     id BIGSERIAL PRIMARY KEY,
@@ -81,13 +114,13 @@ CREATE TABLE IF NOT EXISTS migration_method_likes (
     CONSTRAINT unique_user_method_like UNIQUE (user_id, method_id)
 );
 
-INSERT INTO users (email)
+INSERT INTO users (email, password)
 VALUES
-    ('student@example.com'),
-    ('analyst@example.com'),
-    ('engineer@example.com'),
-    ('architect@example.com'),
-    ('reviewer@example.com')
+    ('student@example.com', '!'),
+    ('analyst@example.com', '!'),
+    ('engineer@example.com', '!'),
+    ('architect@example.com', '!'),
+    ('reviewer@example.com', '!')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO migration_methods (
@@ -98,6 +131,7 @@ INSERT INTO migration_methods (
     video_url,
     time_in_gb,
     reliability,
+    published_at,
     creator_id
 )
 SELECT seed.title,
@@ -107,17 +141,18 @@ SELECT seed.title,
        seed.video_url,
        seed.time_in_gb,
        seed.reliability,
+       CASE WHEN seed.status = 'draft' THEN NULL ELSE NOW() END,
        users.id
 FROM (
     VALUES
         (
             'Онлайн-миграция',
-            'Перенос данных в реальном времени с минимальным или нулевым временем простоя системы...',
+            NULL,
             'draft',
             'http://localhost:9000/data-migration-service/online.png',
             'http://localhost:9000/data-migration-service/online.mp4',
-            0.18,
-            0.9980,
+            NULL,
+            NULL,
             'student@example.com'
         ),
         (
@@ -196,7 +231,6 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM migration_methods existing
     WHERE existing.title = seed.title
-      AND existing.creator_id = users.id
 );
 
 INSERT INTO migration_method_likes (user_id, method_id)

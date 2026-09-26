@@ -13,12 +13,6 @@
   <form class="create-form" action="/add/publish" method="POST">
     <div class="media-upload-grid current-media-preview">
       <div class="upload-field-group">
-        <label class="form-label">Фотография</label>
-        <div class="media-preview-container">
-          <img src="{{.Data.Draft.ImageURL}}" alt="{{.Data.Draft.Title}}" class="preview-media">
-        </div>
-      </div>
-      <div class="upload-field-group">
         <label class="form-label">Видео</label>
         <div class="media-preview-container">
           <video
@@ -31,6 +25,13 @@
           ></video>
         </div>
       </div>
+
+      <div class="upload-field-group">
+        <label class="form-label">Фотография</label>
+        <div class="media-preview-container">
+          <img src="{{.Data.Draft.ImageURL}}" alt="{{.Data.Draft.Title}}" class="preview-media">
+        </div>
+      </div>
     </div>
 
     <div class="form-group">
@@ -40,7 +41,7 @@
 
     <div class="form-group">
       <label class="form-label" for="description-input">Краткая информация (описание)</label>
-      <textarea name="description" id="description-input" class="form-input form-textarea" placeholder="Введите описание услуги..." required>{{.Data.Draft.Description}}</textarea>
+      <textarea name="description" id="description-input" class="form-input form-textarea" placeholder="Введите описание услуги..." required>{{with .Data.Draft.Description}}{{.}}{{end}}</textarea>
     </div>
 
     <div class="metrics-grid">
@@ -61,22 +62,22 @@
   <form class="create-form" action="/add" method="POST">
     <div class="media-upload-grid">
       <div class="upload-field-group">
-        <label class="form-label">Фотография услуги</label>
-        <label class="upload-card" for="photo-input">
-          <i class="bi bi-image upload-icon"></i>
-          <span class="upload-text">Выберите фотографию</span>
-          <span class="upload-hint">Нажмите, чтобы выбрать файл</span>
-          <input id="photo-input" type="file" accept="image/*" class="file-input" required>
-        </label>
-      </div>
-
-      <div class="upload-field-group">
         <label class="form-label">Видеодемонстрация</label>
         <label class="upload-card" for="video-input">
           <i class="bi bi-camera-video upload-icon"></i>
           <span class="upload-text">Выберите видео</span>
           <span class="upload-hint">Нажмите, чтобы выбрать файл</span>
           <input id="video-input" type="file" accept="video/*" class="file-input" required>
+        </label>
+      </div>
+
+      <div class="upload-field-group">
+        <label class="form-label">Фотография услуги</label>
+        <label class="upload-card" for="photo-input">
+          <i class="bi bi-image upload-icon"></i>
+          <span class="upload-text">Выберите фотографию</span>
+          <span class="upload-hint">Нажмите, чтобы выбрать файл</span>
+          <input id="photo-input" type="file" accept="image/*" class="file-input" required>
         </label>
       </div>
     </div>

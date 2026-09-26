@@ -203,4 +203,3 @@ func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 
 	c.Redirect(http.StatusSeeOther, "/grid")
 }
-
