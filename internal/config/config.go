@@ -13,6 +13,16 @@ import (
 type Config struct {
 	WebServer WebServer
 	Database  Database
+	Storage   ObjectStorage
+}
+
+type ObjectStorage struct {
+	Endpoint      string
+	PublicBaseURL string
+	Bucket        string
+	AccessKey     string
+	SecretKey     string
+	Secure        bool
 }
 
 type WebServer struct {
@@ -62,6 +72,18 @@ func Load(dotEnvPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	secure, err := strconv.ParseBool(envString("MINIO_USE_SSL", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid MINIO_USE_SSL: %w", err)
+	}
+	bucket := envString("MINIO_BUCKET", "data-migration-service")
+	endpoint := envString("MINIO_ENDPOINT", "localhost:9000")
+	scheme := "http"
+	if secure {
+		scheme = "https"
+	}
+	publicBaseURL := strings.TrimRight(envString("MINIO_BASE_URL", scheme+"://"+endpoint), "/") + "/" + bucket
+
 	return Config{
 		WebServer: WebServer{
 			Host: envString("WEB_HOST", "0.0.0.0"),
@@ -75,6 +97,14 @@ func Load(dotEnvPath string) (Config, error) {
 			Name:     envString("DB_NAME", "data_migration"),
 			SSLMode:  envString("DB_SSL_MODE", "disable"),
 			Timezone: envString("DB_TIMEZONE", "Europe/Moscow"),
+		},
+		Storage: ObjectStorage{
+			Endpoint:      endpoint,
+			PublicBaseURL: publicBaseURL,
+			Bucket:        bucket,
+			AccessKey:     envString("MINIO_ACCESS_KEY", "admin"),
+			SecretKey:     envString("MINIO_SECRET_KEY", "password123"),
+			Secure:        secure,
 		},
 	}, nil
 }

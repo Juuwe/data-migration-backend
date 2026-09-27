@@ -26,22 +26,21 @@ func TestRouterContainsAssignmentRoutes(t *testing.T) {
 	router := NewRouter(service.NewMigrationMethodService(nil), service.NewUserService(nil))
 
 	want := map[string]struct{}{
-		"GET /api/v1/methods":           {},
-		"GET /api/v1/methods/feed":      {},
-		"GET /api/v1/methods/:id":       {},
-		"GET /api/v1/methods/:id/next":  {},
-		"GET /api/v1/methods/draft":     {},
-		"POST /api/v1/methods":          {},
-		"PUT /api/v1/methods/publish":   {},
-		"DELETE /api/v1/methods/:id":    {},
-		"POST /api/v1/methods/:id/like": {},
-		"POST /api/v1/users":            {},
-		"POST /api/v1/users/login":      {},
-		"POST /api/v1/users/logout":     {},
+		"GET /api/methods":           {},
+		"GET /api/methods/feed":      {},
+		"GET /api/methods/feed/:id":  {},
+		"GET /api/methods/draft":     {},
+		"POST /api/methods":          {},
+		"PUT /api/methods/publish":   {},
+		"DELETE /api/methods/:id":    {},
+		"POST /api/methods/:id/like": {},
+		"POST /api/users":            {},
+		"POST /api/users/login":      {},
+		"POST /api/users/logout":     {},
 	}
 
 	for _, route := range router.Routes() {
-		if route.Path != "/static/*filepath" && (len(route.Path) < len("/api/v1/") || route.Path[:len("/api/v1/")] != "/api/v1/") {
+		if route.Path != "/static/*filepath" && (len(route.Path) < len("/api/") || route.Path[:len("/api/")] != "/api/") {
 			t.Fatalf("route %s %s has an unexpected path", route.Method, route.Path)
 		}
 		delete(want, route.Method+" "+route.Path)

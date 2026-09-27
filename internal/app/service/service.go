@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -13,12 +11,15 @@ import (
 )
 
 const (
-	DefaultImageURL   = "/static/images/default.svg"
-	DefaultVideoURL   = "/static/videos/default.mp4"
-	mediaCheckTimeout = 2 * time.Second
+	DefaultImageURL = "/static/images/default.svg"
+	DefaultVideoURL = "/static/videos/default.mp4"
 )
 
-var mediaHTTPClient = &http.Client{Timeout: mediaCheckTimeout}
+var (
+	ErrDraftTitleRequired = errors.New("название не может быть пустым")
+	ErrDraftTitleTooLong  = errors.New("название не может быть длиннее 255 символов")
+	ErrDraftAlreadyExists = errors.New("черновик уже существует")
+)
 
 type MigrationMethodRepository interface {
 	FindByID(ctx context.Context, id int64) (ds.MigrationMethod, error)
@@ -37,65 +38,42 @@ type MigrationMethodRepository interface {
 }
 
 type MigrationMethodService struct {
-	repo              MigrationMethodRepository
-	mediaURLAvailable func(context.Context, string) bool
+	repo  MigrationMethodRepository
+	media *MediaService
 }
 
-func NewMigrationMethodService(repo MigrationMethodRepository) *MigrationMethodService {
+func NewMigrationMethodService(repo MigrationMethodRepository, media ...*MediaService) *MigrationMethodService {
+	var mediaService *MediaService
+	if len(media) > 0 {
+		mediaService = media[0]
+	}
 	return &MigrationMethodService{
-		repo:              repo,
-		mediaURLAvailable: isMediaURLAvailable,
+		repo:  repo,
+		media: mediaService,
 	}
 }
 
 type MigrationMethodView struct {
 	ds.MigrationMethod
-	LikesCount  int     `json:"likes_count"`
-	TimeInGb    float64 `json:"time_in_gb"`
-	Reliability float64 `json:"reliability"`
+	ImageURL             string  `json:"image_url"`
+	VideoURL             string  `json:"video_url"`
+	CreatedByCurrentUser bool    `json:"created_by_current_user"`
+	LikesCount           int     `json:"likes_count"`
+	TimeInGb             float64 `json:"time_in_gb"`
+	Reliability          float64 `json:"reliability"`
 }
 
-func isMediaURLAvailable(ctx context.Context, rawURL string) bool {
-	parsedURL, err := url.ParseRequestURI(rawURL)
-	if err != nil {
-		return false
-	}
-
-	// Локальные файлы проверяются самим HTTP-сервером приложения.
-	if parsedURL.Scheme == "" {
-		return strings.HasPrefix(parsedURL.Path, "/")
-	}
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return false
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
-	if err != nil {
-		return false
-	}
-	response, err := mediaHTTPClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer response.Body.Close()
-
-	return response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusBadRequest
-}
-
-func (s *MigrationMethodService) resolveMediaURL(ctx context.Context, rawURL, fallbackURL string) string {
-	if strings.TrimSpace(rawURL) == "" || !s.mediaURLAvailable(ctx, rawURL) {
-		return fallbackURL
-	}
-	return rawURL
-}
-
-func (s *MigrationMethodService) buildView(ctx context.Context, m ds.MigrationMethod, likesCount int) MigrationMethodView {
-	m.VideoURL = s.resolveMediaURL(ctx, m.VideoURL, DefaultVideoURL)
-	m.ImageURL = s.resolveMediaURL(ctx, m.ImageURL, DefaultImageURL)
-
+func (s *MigrationMethodService) buildView(m ds.MigrationMethod, likesCount int, currentUserID int64) MigrationMethodView {
 	view := MigrationMethodView{
-		MigrationMethod: m,
-		LikesCount:      likesCount,
+		MigrationMethod:      m,
+		CreatedByCurrentUser: currentUserID > 0 && m.CreatorID == currentUserID,
+		LikesCount:           likesCount,
+	}
+	if s.media == nil {
+		view.ImageURL, view.VideoURL = DefaultImageURL, DefaultVideoURL
+	} else {
+		view.ImageURL = s.media.publicURL(m.ImageKey, DefaultImageURL)
+		view.VideoURL = s.media.publicURL(m.VideoKey, DefaultVideoURL)
 	}
 	if m.TimeInGb != nil {
 		view.TimeInGb = *m.TimeInGb
@@ -106,16 +84,16 @@ func (s *MigrationMethodService) buildView(ctx context.Context, m ds.MigrationMe
 	return view
 }
 
-func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.MigrationMethod) (MigrationMethodView, error) {
+func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.MigrationMethod, currentUserID int64) (MigrationMethodView, error) {
 	likesCount, err := s.repo.CountMethodLikesByID(ctx, m.ID)
 	if err != nil {
 		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
 	}
 
-	return s.buildView(ctx, *m, likesCount), nil
+	return s.buildView(*m, likesCount, currentUserID), nil
 }
 
-func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod, currentUserID int64) ([]MigrationMethodView, error) {
 	if len(methods) == 0 {
 		return make([]MigrationMethodView, 0), nil
 	}
@@ -133,7 +111,7 @@ func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds
 	views := make([]MigrationMethodView, len(methods))
 	for i := range methods {
 		id := methods[i].ID
-		views[i] = s.buildView(ctx, methods[i], likesMap[id])
+		views[i] = s.buildView(methods[i], likesMap[id], currentUserID)
 	}
 
 	return views, nil
@@ -147,19 +125,19 @@ func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) 
 		}
 		return MigrationMethodView{}, false, err
 	}
-	return s.buildView(ctx, draft, 0), true, nil
+	return s.buildView(draft, 0, creatorID), true, nil
 }
 
-func (s *MigrationMethodService) GetPublished(ctx context.Context) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) GetPublished(ctx context.Context, currentUserID int64) ([]MigrationMethodView, error) {
 	methods, err := s.repo.FindPublished(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.buildViewList(ctx, methods)
+	return s.buildViewList(ctx, methods, currentUserID)
 }
 
-func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id int64) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id, currentUserID int64) (MigrationMethodView, error) {
 	m, err := s.repo.FindNextPublishedAfterID(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
@@ -176,10 +154,10 @@ func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id
 		m = published[0]
 	}
 
-	return s.buildSingleView(ctx, &m)
+	return s.buildSingleView(ctx, &m, currentUserID)
 }
 
-func (s *MigrationMethodService) GetByID(ctx context.Context, id int64) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID int64) (MigrationMethodView, error) {
 	m, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return MigrationMethodView{}, err
@@ -189,25 +167,25 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id int64) (Migrati
 		return MigrationMethodView{}, ds.ErrMigrationMethodNotFound
 	}
 
-	return s.buildSingleView(ctx, &m)
+	return s.buildSingleView(ctx, &m, currentUserID)
 }
 
-func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64, currentUserID int64) ([]MigrationMethodView, error) {
 	methods, err := s.repo.FindPublishedByTime(ctx, minTime, maxTime)
 	if err != nil {
 		return []MigrationMethodView{}, err
 	}
 
-	return s.buildViewList(ctx, methods)
+	return s.buildViewList(ctx, methods, currentUserID)
 }
 
-func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64) error {
+func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64, imageInput, videoInput MediaInput) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return errors.New("название не может быть пустым")
+		return ErrDraftTitleRequired
 	}
 	if len([]rune(title)) > 255 {
-		return errors.New("название не может быть длиннее 255 символов")
+		return ErrDraftTitleTooLong
 	}
 
 	_, exists, err := s.GetDraft(ctx, creatorID)
@@ -215,15 +193,38 @@ func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title st
 		return err
 	}
 	if exists {
-		return errors.New("черновик уже существует")
+		return ErrDraftAlreadyExists
+	}
+	if s.media == nil {
+		return errors.New("хранилище медиа не настроено")
+	}
+
+	image, err := s.media.prepareImage(imageInput)
+	if err != nil {
+		return err
+	}
+	video, err := s.media.prepareVideo(videoInput)
+	if err != nil {
+		return err
+	}
+	if err := s.media.upload(ctx, image); err != nil {
+		return errors.Join(err, s.media.cleanup(ctx, image.key))
+	}
+	if err := s.media.upload(ctx, video); err != nil {
+		return errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
 	}
 
 	m := ds.MigrationMethod{
 		Title:     title,
 		Status:    ds.StatusDraft,
 		CreatorID: creatorID,
+		ImageKey:  image.key,
+		VideoKey:  video.key,
 	}
-	return s.repo.Create(ctx, &m)
+	if err := s.repo.Create(ctx, &m); err != nil {
+		return errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
+	}
+	return nil
 }
 
 func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int64, desc string, timeInGb, reliability float64) error {

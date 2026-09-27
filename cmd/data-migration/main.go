@@ -7,6 +7,7 @@ import (
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
 	"github.com/Juuwe/data-migration-backend/internal/config"
 	"github.com/Juuwe/data-migration-backend/internal/repository"
+	"github.com/Juuwe/data-migration-backend/internal/storage"
 )
 
 func main() {
@@ -28,7 +29,11 @@ func main() {
 		log.Fatalf("Ошибка подключения к PostgreSQL: %v", err)
 	}
 
-	svc := service.NewMigrationMethodService(repo)
+	objectStore, err := storage.NewMinIO(cfg.Storage)
+	if err != nil {
+		log.Fatalf("Ошибка настройки MinIO: %v", err)
+	}
+	svc := service.NewMigrationMethodService(repo, service.NewMediaService(objectStore))
 	userSvc := service.NewUserService(repo)
 
 	r := api.NewRouter(svc, userSvc)

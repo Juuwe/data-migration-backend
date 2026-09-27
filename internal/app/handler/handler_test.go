@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,6 +60,44 @@ type jsonRepositoryStub struct {
 	likeUser  int64
 	likeValue int
 	likeCalls int
+}
+
+type objectStoreStub struct{}
+
+func (objectStoreStub) Put(context.Context, string, io.ReadSeeker, int64, string) error { return nil }
+func (objectStoreStub) Delete(context.Context, string) error                            { return nil }
+func (objectStoreStub) PublicURL(key string) string {
+	return "http://localhost:9000/data-migration-service/" + key
+}
+
+func multipartDraftRequest(t *testing.T) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("title", "Новая услуга"); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []struct {
+		name string
+		data []byte
+	}{
+		{"image", []byte("\x89PNG\r\n\x1a\n")},
+		{"video", []byte("\x1a\x45\xdf\xa3")},
+	} {
+		part, err := writer.CreateFormFile(file.name, file.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(file.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/methods", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	return request
 }
 
 func (r *jsonRepositoryStub) FindPublished(context.Context) ([]ds.MigrationMethod, error) {
@@ -130,7 +171,7 @@ func (r *jsonRepositoryStub) SetLike(_ context.Context, methodID, userID int64, 
 func TestDraftWorkflowReturnsJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{}
-	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
+	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo, service.NewMediaService(objectStoreStub{})))
 	router := gin.New()
 	router.GET("/api/v1/methods/draft", handler.ShowAddMethodPage)
 	router.POST("/api/v1/methods", handler.CreateDraftMethod)
@@ -144,7 +185,7 @@ func TestDraftWorkflowReturnsJSON(t *testing.T) {
 		status int
 	}{
 		{http.MethodGet, "/api/v1/methods/draft", "", http.StatusNotFound},
-		{http.MethodPost, "/api/v1/methods", `{"title":"Новая услуга"}`, http.StatusCreated},
+		{http.MethodPost, "/api/v1/methods", "", http.StatusCreated},
 		{http.MethodGet, "/api/v1/methods/draft", "", http.StatusOK},
 		{http.MethodPut, "/api/v1/methods/publish", `{"description":"Описание","time_in_gb":0.25,"reliability":0.9}`, http.StatusOK},
 		{http.MethodDelete, "/api/v1/methods/7", "", http.StatusOK},
@@ -153,6 +194,9 @@ func TestDraftWorkflowReturnsJSON(t *testing.T) {
 	for _, test := range tests {
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+		if test.method == http.MethodPost {
+			request = multipartDraftRequest(t)
+		}
 		if test.body != "" {
 			request.Header.Set("Content-Type", "application/json")
 		}
@@ -179,6 +223,36 @@ func TestDraftWorkflowReturnsJSON(t *testing.T) {
 	}
 	if repo.deletedID != 7 {
 		t.Fatalf("deleted ID = %d, want 7", repo.deletedID)
+	}
+}
+
+func TestCreateDraftRejectsMissingVideo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &jsonRepositoryStub{}
+	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo, service.NewMediaService(objectStoreStub{})))
+	router := gin.New()
+	router.POST("/api/v1/methods", handler.CreateDraftMethod)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("title", "Услуга"); err != nil {
+		t.Fatal(err)
+	}
+	image, err := writer.CreateFormFile("image", "photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := image.Write([]byte("\x89PNG\r\n\x1a\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/methods", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || repo.created != nil {
+		t.Fatalf("status = %d, created = %+v, body = %q", response.Code, repo.created, response.Body.String())
 	}
 }
 
@@ -219,20 +293,19 @@ func TestMethodRoutesReadIDsFromPath(t *testing.T) {
 	}}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
 	router := gin.New()
-	router.GET("/api/v1/methods", handler.GetGrid)
-	router.GET("/api/v1/methods/feed", handler.GetFeedItem)
-	router.GET("/api/v1/methods/:id", handler.GetFeedItem)
-	router.GET("/api/v1/methods/:id/next", handler.GetNextFeedItem)
+	router.GET("/api/methods", handler.GetGrid)
+	router.GET("/api/methods/feed", handler.GetFeedItem)
+	router.GET("/api/methods/feed/:id", handler.GetFeedItem)
 
 	tests := []struct {
 		path   string
 		field  string
 		wantID float64
 	}{
-		{"/api/v1/methods", "methods", 3},
-		{"/api/v1/methods/feed", "method", 3},
-		{"/api/v1/methods/7", "method", 7},
-		{"/api/v1/methods/3/next", "method", 7},
+		{"/api/methods", "methods", 3},
+		{"/api/methods/feed", "method", 3},
+		{"/api/methods/feed/7", "method", 7},
+		{"/api/methods/feed/3?next=true", "method", 7},
 	}
 	for _, test := range tests {
 		response := httptest.NewRecorder()

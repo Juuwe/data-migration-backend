@@ -1,0 +1,112 @@
+{
+  "info": {
+    "name": "Data Migration API",
+    "description": "Укажите baseUrl при необходимости. Для запросов с {{methodId}} скопируйте ID из ответа API в переменную коллекции. Перед созданием черновика опубликуйте существующий черновик пользователя 1. Для создания выберите файлы image и video в Postman.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "methodId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Список методов",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods?min_time=0.01&max_time=1.00"
+      }
+    },
+    {
+      "name": "Первая карточка ленты",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods/feed"
+      }
+    },
+    {
+      "name": "Карточка по ID",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods/feed/{{methodId}}"
+      }
+    },
+    {
+      "name": "Следующая карточка",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods/feed/{{methodId}}?next=true"
+      }
+    },
+    {
+      "name": "Получить черновик",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods/draft"
+      }
+    },
+    {
+      "name": "Опубликовать черновик",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Описание метода миграции\",\n  \"time_in_gb\": 0.25,\n  \"reliability\": 0.9\n}"
+        },
+        "url": "{{baseUrl}}/api/methods/publish"
+      }
+    },
+    {
+      "name": "Создать черновик",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "title", "value": "Новый метод миграции", "type": "text" },
+            { "key": "image", "type": "file", "src": "" },
+            { "key": "video", "type": "file", "src": "" }
+          ]
+        },
+        "url": "{{baseUrl}}/api/methods"
+      }
+    },
+    {
+      "name": "Поставить лайк",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"like\": 1\n}"
+        },
+        "url": "{{baseUrl}}/api/methods/{{methodId}}/like"
+      }
+    },
+    {
+      "name": "Удалить метод",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/methods/{{methodId}}"
+      }
+    },
+    {
+      "name": "Зарегистрировать пользователя",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"new.user@example.com\",\n  \"password\": \"password123\"\n}"
+        },
+        "url": "{{baseUrl}}/api/users"
+      }
+    }
+  ]
+}

@@ -21,8 +21,8 @@ type MigrationMethod struct {
 	Title       string  `gorm:"column:title;type:varchar(255);uniqueIndex;not null" json:"title"`
 	Description *string `gorm:"column:description;type:text;" json:"description"`
 	Status      Status  `gorm:"column:status;type:varchar(20);not null;default:'draft'" json:"status"`
-	ImageURL    string  `gorm:"column:image_url;type:varchar(2048)" json:"image_url"`
-	VideoURL    string  `gorm:"column:video_url;type:varchar(2048)" json:"video_url"`
+	ImageKey    string  `gorm:"column:image_key;type:varchar(255)" json:"-"`
+	VideoKey    string  `gorm:"column:video_key;type:varchar(255)" json:"-"`
 
 	TimeInGb    *float64 `gorm:"column:time_in_gb;type:numeric(10,2)" json:"time_in_gb"`
 	Reliability *float64 `gorm:"column:reliability;type:numeric(5,4)" json:"reliability"`

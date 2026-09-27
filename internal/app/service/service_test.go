@@ -1,18 +1,43 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"net/http"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+type objectStoreStub struct {
+	keys    []string
+	deleted []string
+}
 
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
+func (s *objectStoreStub) Put(_ context.Context, key string, body io.ReadSeeker, size int64, contentType string) error {
+	if size <= 0 || contentType == "" {
+		return errors.New("invalid upload")
+	}
+	s.keys = append(s.keys, key)
+	return nil
+}
+
+func (s *objectStoreStub) Delete(_ context.Context, key string) error {
+	s.deleted = append(s.deleted, key)
+	return nil
+}
+
+func (s *objectStoreStub) PublicURL(key string) string {
+	return "http://localhost:9000/data-migration-service/" + key
+}
+
+func mediaInputs() (MediaInput, MediaInput) {
+	image := []byte("\x89PNG\r\n\x1a\n")
+	video := []byte("\x1a\x45\xdf\xa3")
+	return MediaInput{Reader: bytes.NewReader(image), Size: int64(len(image))},
+		MediaInput{Reader: bytes.NewReader(video), Size: int64(len(video))}
 }
 
 type repositoryStub struct {
@@ -124,7 +149,7 @@ func TestGetByIDUsesDefaultMedia(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}}
 	svc := NewMigrationMethodService(repo)
 
-	view, err := svc.GetByID(context.Background(), 7)
+	view, err := svc.GetByID(context.Background(), 7, 1)
 
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
@@ -141,7 +166,7 @@ func TestGetByIDRejectsDeletedMethod(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusDeleted}}
 	svc := NewMigrationMethodService(repo)
 
-	_, err := svc.GetByID(context.Background(), 7)
+	_, err := svc.GetByID(context.Background(), 7, 1)
 
 	if err == nil {
 		t.Fatal("GetByID() error = nil, want deleted method error")
@@ -152,58 +177,10 @@ func TestGetByIDRejectsDraftMethod(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusDraft}}
 	svc := NewMigrationMethodService(repo)
 
-	_, err := svc.GetByID(context.Background(), 7)
+	_, err := svc.GetByID(context.Background(), 7, 1)
 
 	if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
 		t.Fatalf("GetByID() error = %v, want %v", err, ds.ErrMigrationMethodNotFound)
-	}
-}
-
-func TestGetByIDUsesDefaultMediaWhenStoredURLsAreUnavailable(t *testing.T) {
-	repo := &repositoryStub{method: ds.MigrationMethod{
-		ID:       7,
-		Status:   ds.StatusPublished,
-		ImageURL: "http://minio.invalid/missing.png",
-		VideoURL: "http://minio.invalid/missing.mp4",
-	}}
-	svc := NewMigrationMethodService(repo)
-	svc.mediaURLAvailable = func(context.Context, string) bool { return false }
-
-	view, err := svc.GetByID(context.Background(), 7)
-
-	if err != nil {
-		t.Fatalf("GetByID() error = %v", err)
-	}
-	if view.ImageURL != DefaultImageURL {
-		t.Errorf("ImageURL = %q, want %q", view.ImageURL, DefaultImageURL)
-	}
-	if view.VideoURL != DefaultVideoURL {
-		t.Errorf("VideoURL = %q, want %q", view.VideoURL, DefaultVideoURL)
-	}
-}
-
-func TestIsMediaURLAvailableChecksHTTPStatus(t *testing.T) {
-	statusCode := http.StatusOK
-	previousClient := mediaHTTPClient
-	mediaHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodHead {
-			t.Fatalf("request method = %s, want %s", req.Method, http.MethodHead)
-		}
-		return &http.Response{
-			StatusCode: statusCode,
-			Body:       http.NoBody,
-			Request:    req,
-		}, nil
-	})}
-	t.Cleanup(func() { mediaHTTPClient = previousClient })
-
-	if !isMediaURLAvailable(context.Background(), "http://minio.test/available.png") {
-		t.Fatal("isMediaURLAvailable() = false for an available object")
-	}
-
-	statusCode = http.StatusNotFound
-	if isMediaURLAvailable(context.Background(), "http://minio.test/missing.png") {
-		t.Fatal("isMediaURLAvailable() = true for a missing object")
 	}
 }
 
@@ -214,7 +191,7 @@ func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 	}
 	svc := NewMigrationMethodService(repo)
 
-	view, err := svc.GetNextPublishedAfterID(context.Background(), 5)
+	view, err := svc.GetNextPublishedAfterID(context.Background(), 5, 1)
 
 	if err != nil {
 		t.Fatalf("GetNextPublishedAfterID() error = %v", err)
@@ -224,22 +201,21 @@ func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 	}
 }
 
-func TestGetPublishedUsesStoredMediaURLs(t *testing.T) {
+func TestGetPublishedBuildsMediaURLsFromKeys(t *testing.T) {
 	repo := &repositoryStub{
 		published: []ds.MigrationMethod{
 			{
 				ID:       1,
 				Status:   ds.StatusPublished,
-				ImageURL: "http://localhost:9000/data-migration-service/first.jpg",
-				VideoURL: "http://localhost:9000/data-migration-service/first.mp4",
+				ImageKey: "first.jpg",
+				VideoKey: "first.mp4",
 			},
 			{ID: 2, Status: ds.StatusPublished},
 		},
 	}
-	svc := NewMigrationMethodService(repo)
-	svc.mediaURLAvailable = func(context.Context, string) bool { return true }
+	svc := NewMigrationMethodService(repo, NewMediaService(&objectStoreStub{}))
 
-	views, err := svc.GetPublished(context.Background())
+	views, err := svc.GetPublished(context.Background(), 1)
 
 	if err != nil {
 		t.Fatalf("GetPublished() error = %v", err)
@@ -254,9 +230,11 @@ func TestGetPublishedUsesStoredMediaURLs(t *testing.T) {
 
 func TestCreateDraftMethod(t *testing.T) {
 	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
-	svc := NewMigrationMethodService(repo)
+	store := &objectStoreStub{}
+	svc := NewMigrationMethodService(repo, NewMediaService(store))
+	image, video := mediaInputs()
 
-	err := svc.CreateDraftMethod(context.Background(), "  Быстрая миграция  ", 3)
+	err := svc.CreateDraftMethod(context.Background(), "  Быстрая миграция  ", 3, image, video)
 
 	if err != nil {
 		t.Fatalf("CreateDraftMethod() error = %v", err)
@@ -270,6 +248,10 @@ func TestCreateDraftMethod(t *testing.T) {
 	if repo.created.Status != ds.StatusDraft || repo.created.CreatorID != 3 {
 		t.Errorf("created method = %+v", *repo.created)
 	}
+	if !strings.HasPrefix(repo.created.ImageKey, "images/") || !strings.HasSuffix(repo.created.ImageKey, ".png") ||
+		!strings.HasPrefix(repo.created.VideoKey, "videos/") || !strings.HasSuffix(repo.created.VideoKey, ".webm") || len(store.keys) != 2 {
+		t.Errorf("media keys = %q, %q; uploaded = %v", repo.created.ImageKey, repo.created.VideoKey, store.keys)
+	}
 	if repo.created.Description != nil || repo.created.TimeInGb != nil || repo.created.Reliability != nil || repo.created.PublishedAt != nil {
 		t.Errorf("draft fields must be nil: %+v", *repo.created)
 	}
@@ -279,13 +261,40 @@ func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
 	repo := &repositoryStub{draft: ds.MigrationMethod{ID: 1, Status: ds.StatusDraft}}
 	svc := NewMigrationMethodService(repo)
 
-	err := svc.CreateDraftMethod(context.Background(), "Еще один", 1)
+	image, video := mediaInputs()
+	err := svc.CreateDraftMethod(context.Background(), "Еще один", 1, image, video)
 
 	if err == nil {
 		t.Fatal("CreateDraftMethod() error = nil, want duplicate draft error")
 	}
 	if repo.created != nil {
 		t.Fatal("repository Create() was called for a duplicate draft")
+	}
+}
+
+func TestCreateDraftMethodRequiresMedia(t *testing.T) {
+	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
+	svc := NewMigrationMethodService(repo, NewMediaService(&objectStoreStub{}))
+	image, _ := mediaInputs()
+	if err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, MediaInput{}); !errors.Is(err, ErrInvalidMedia) {
+		t.Fatalf("error = %v, want ErrInvalidMedia", err)
+	}
+	if repo.created != nil {
+		t.Fatal("draft was saved without video")
+	}
+}
+
+func TestCreateDraftMethodCleansUpAfterDatabaseError(t *testing.T) {
+	wantErr := errors.New("database unavailable")
+	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound, createErr: wantErr}
+	store := &objectStoreStub{}
+	svc := NewMigrationMethodService(repo, NewMediaService(store))
+	image, video := mediaInputs()
+	if err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, video); !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want database error", err)
+	}
+	if len(store.keys) != 2 || len(store.deleted) != 2 || store.deleted[0] != store.keys[0] || store.deleted[1] != store.keys[1] {
+		t.Fatalf("uploaded = %v, deleted = %v", store.keys, store.deleted)
 	}
 }
 

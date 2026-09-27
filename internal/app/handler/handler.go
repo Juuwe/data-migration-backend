@@ -35,6 +35,7 @@ func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMeth
 
 func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 	ctx := c.Request.Context()
+	currentUserID := currentCreatorID()
 
 	minTime, errMin := strconv.ParseFloat(c.Query("min_time"), 64)
 	maxTime, errMax := strconv.ParseFloat(c.Query("max_time"), 64)
@@ -46,9 +47,9 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 
 	if errMin != nil || errMax != nil || minTime < 0 || maxTime < minTime {
 		minTime, maxTime = 0.01, 1.00
-		methods, err = h.s.GetPublished(ctx)
+		methods, err = h.s.GetPublished(ctx, currentUserID)
 	} else {
-		methods, err = h.s.GetPublishedByTime(ctx, minTime, maxTime)
+		methods, err = h.s.GetPublishedByTime(ctx, minTime, maxTime, currentUserID)
 	}
 
 	if err != nil {
@@ -65,16 +66,9 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 }
 
 func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
-	h.getFeedItem(c, false)
-}
-
-func (h *MigrationMethodHandler) GetNextFeedItem(c *gin.Context) {
-	h.getFeedItem(c, true)
-}
-
-func (h *MigrationMethodHandler) getFeedItem(c *gin.Context, next bool) {
 	idStr := c.Param("id")
 	ctx := c.Request.Context()
+	currentUserID := currentCreatorID()
 
 	var (
 		method service.MigrationMethodView
@@ -83,7 +77,7 @@ func (h *MigrationMethodHandler) getFeedItem(c *gin.Context, next bool) {
 
 	if idStr == "" {
 		var published []service.MigrationMethodView
-		published, err = h.s.GetPublished(ctx)
+		published, err = h.s.GetPublished(ctx, currentUserID)
 		if err != nil || len(published) == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Услуга не найдена"})
 			return
@@ -97,10 +91,10 @@ func (h *MigrationMethodHandler) getFeedItem(c *gin.Context, next bool) {
 			return
 		}
 
-		if next {
-			method, err = h.s.GetNextPublishedAfterID(ctx, id)
+		if c.Query("next") == "true" {
+			method, err = h.s.GetNextPublishedAfterID(ctx, id, currentUserID)
 		} else {
-			method, err = h.s.GetByID(ctx, id)
+			method, err = h.s.GetByID(ctx, id, currentUserID)
 		}
 
 		if err != nil {
@@ -132,17 +126,61 @@ func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
 
 func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
 	userID := currentCreatorID()
-	var request struct {
-		Title string `json:"title"`
-	}
-	if err := bindJSON(c, &request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.MaxUploadBytes)
+	form, err := c.MultipartForm()
+	if err != nil {
+		var sizeError *http.MaxBytesError
+		if errors.As(err, &sizeError) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "размер запроса превышен"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ожидается multipart/form-data с title, image и video"})
 		return
 	}
+	defer form.RemoveAll()
 
-	err := h.s.CreateDraftMethod(c.Request.Context(), request.Title, userID)
+	if len(form.Value) != 1 || len(form.Value["title"]) != 1 || len(form.File) != 2 || len(form.File["image"]) != 1 || len(form.File["video"]) != 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "нужны только title, image и video"})
+		return
+	}
+	imageHeader := form.File["image"][0]
+	videoHeader := form.File["video"][0]
+	if imageHeader.Size <= 0 || videoHeader.Size <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "изображение и видео обязательны"})
+		return
+	}
+	if imageHeader.Size > service.MaxImageBytes || videoHeader.Size > service.MaxVideoBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "размер изображения или видео превышен"})
+		return
+	}
+	imageFile, err := imageHeader.Open()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "не удалось прочитать изображение"})
+		return
+	}
+	defer imageFile.Close()
+	videoFile, err := videoHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "не удалось прочитать видео"})
+		return
+	}
+	defer videoFile.Close()
+
+	err = h.s.CreateDraftMethod(c.Request.Context(), form.Value["title"][0], userID,
+		service.MediaInput{Reader: imageFile, Size: imageHeader.Size},
+		service.MediaInput{Reader: videoFile, Size: videoHeader.Size})
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, service.ErrDraftTitleRequired), errors.Is(err, service.ErrDraftTitleTooLong),
+			errors.Is(err, service.ErrDraftAlreadyExists), errors.Is(err, service.ErrInvalidMedia):
+			status = http.StatusBadRequest
+		}
+		if status == http.StatusInternalServerError {
+			c.JSON(status, gin.H{"error": "Не удалось создать черновик"})
+			return
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 

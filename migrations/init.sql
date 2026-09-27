@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     description TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'deleted')),
-    image_url VARCHAR(2048),
-    video_url VARCHAR(2048),
+    image_key VARCHAR(255),
+    video_key VARCHAR(255),
     time_in_gb NUMERIC(10, 2),
     reliability NUMERIC(5, 4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -23,6 +23,19 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     CONSTRAINT fk_migration_methods_creator
         FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT
 );
+
+ALTER TABLE migration_methods
+    ADD COLUMN IF NOT EXISTS image_key VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS video_key VARCHAR(255);
+
+UPDATE migration_methods AS methods
+SET image_key = COALESCE(NULLIF(methods.image_key, ''), regexp_replace(to_jsonb(methods)->>'image_url', '^.*/', '')),
+    video_key = COALESCE(NULLIF(methods.video_key, ''), regexp_replace(to_jsonb(methods)->>'video_url', '^.*/', ''))
+WHERE methods.image_key IS NULL OR methods.video_key IS NULL;
+
+ALTER TABLE migration_methods
+    DROP COLUMN IF EXISTS image_url,
+    DROP COLUMN IF EXISTS video_url;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_migration_methods_creator_draft
     ON migration_methods (creator_id)
@@ -44,7 +57,6 @@ CREATE TABLE IF NOT EXISTS migration_method_likes (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_method
     ON migration_method_likes (user_id, method_id);
 
--- Пользователь с ID 1 временно используется обработчиками до появления авторизации.
 INSERT INTO users (id, email, password)
 VALUES
     (1, 'student@example.com', '!'),
@@ -56,19 +68,17 @@ ON CONFLICT DO NOTHING;
 
 SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users), true);
 
--- Новые карточки используют те же публичные пары изображений и видео.
-WITH media(name, image_url, video_url) AS (
+WITH media(name, image_key, video_key) AS (
     VALUES
-        ('online', 'http://localhost:9000/data-migration-service/online.png', 'http://localhost:9000/data-migration-service/online.mp4'),
-        ('offline', 'http://localhost:9000/data-migration-service/offline.png', 'http://localhost:9000/data-migration-service/offline.mp4'),
-        ('replication', 'http://localhost:9000/data-migration-service/replication.png', 'http://localhost:9000/data-migration-service/replication.mp4'),
-        ('hybrid', 'http://localhost:9000/data-migration-service/hybrid.png', 'http://localhost:9000/data-migration-service/hybrid.mp4'),
-        ('elt', 'http://localhost:9000/data-migration-service/elt.png', 'http://localhost:9000/data-migration-service/elt.mp4'),
-        ('physical', 'http://localhost:9000/data-migration-service/physical.png', 'http://localhost:9000/data-migration-service/physical.mp4'),
-        ('audit', 'http://localhost:9000/data-migration-service/audit.png', 'http://localhost:9000/data-migration-service/audit.mp4')
+        ('online', 'online.png', 'online.mp4'),
+        ('offline', 'offline.png', 'offline.mp4'),
+        ('replication', 'replication.png', 'replication.mp4'),
+        ('hybrid', 'hybrid.png', 'hybrid.mp4'),
+        ('elt', 'elt.png', 'elt.mp4'),
+        ('physical', 'physical.png', 'physical.mp4'),
+        ('audit', 'audit.png', 'audit.mp4')
 ), seed(title, description, status, media_name, time_in_gb, reliability, email) AS (
     VALUES
-        -- У пользователя 1 шесть опубликованных услуг, один черновик и одна удаленная карточка.
         ('Онлайн-миграция', NULL, 'draft', 'online', NULL, NULL, 'student@example.com'),
         ('Репликация данных', 'Организация постоянной синхронизации между исходной и целевой инфраструктурой.', 'published', 'replication', 0.08, 0.9995, 'student@example.com'),
         ('Аудит и валидация', 'Проверка стратегии и результатов переноса данных.', 'published', 'audit', 0.10, 0.9900, 'student@example.com'),
@@ -99,10 +109,10 @@ WITH media(name, image_url, video_url) AS (
         ('Черновик проверки миграции', NULL, 'draft', 'audit', NULL, NULL, 'reviewer@example.com')
 )
 INSERT INTO migration_methods (
-    title, description, status, image_url, video_url,
+    title, description, status, image_key, video_key,
     time_in_gb, reliability, published_at, creator_id
 )
-SELECT seed.title, seed.description, seed.status, media.image_url, media.video_url,
+SELECT seed.title, seed.description, seed.status, media.image_key, media.video_key,
        seed.time_in_gb, seed.reliability,
        CASE WHEN seed.status = 'draft' THEN NULL ELSE NOW() END,
        users.id
