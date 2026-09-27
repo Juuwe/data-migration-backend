@@ -32,7 +32,8 @@ type MigrationMethodRepository interface {
 
 	Create(ctx context.Context, method *ds.MigrationMethod) error
 	Update(ctx context.Context, method *ds.MigrationMethod) error
-	SoftDeleteSQL(ctx context.Context, id int64) error
+	SoftDeleteSQL(ctx context.Context, id, creatorID int64) error
+	SetLike(ctx context.Context, methodID, userID int64, like int) error
 }
 
 type MigrationMethodService struct {
@@ -49,9 +50,9 @@ func NewMigrationMethodService(repo MigrationMethodRepository) *MigrationMethodS
 
 type MigrationMethodView struct {
 	ds.MigrationMethod
-	LikesCount  int
-	TimeInGb    float64
-	Reliability float64
+	LikesCount  int     `json:"likes_count"`
+	TimeInGb    float64 `json:"time_in_gb"`
+	Reliability float64 `json:"reliability"`
 }
 
 func isMediaURLAvailable(ctx context.Context, rawURL string) bool {
@@ -60,7 +61,7 @@ func isMediaURLAvailable(ctx context.Context, rawURL string) bool {
 		return false
 	}
 
-	// Локальные SSR-файлы проверяются самим HTTP-сервером приложения.
+	// Локальные файлы проверяются самим HTTP-сервером приложения.
 	if parsedURL.Scheme == "" {
 		return strings.HasPrefix(parsedURL.Path, "/")
 	}
@@ -255,9 +256,30 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 	return s.repo.Update(ctx, &draft)
 }
 
-func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id int64) error {
+func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id, creatorID int64) error {
 	if id <= 0 {
 		return errors.New("некорректный ID")
 	}
-	return s.repo.SoftDeleteSQL(ctx, id)
+	return s.repo.SoftDeleteSQL(ctx, id, creatorID)
+}
+
+var ErrInvalidLike = errors.New("значение like должно быть 0 или 1")
+
+func (s *MigrationMethodService) SetLike(ctx context.Context, methodID, userID int64, like int) error {
+	if methodID <= 0 || userID <= 0 {
+		return errors.New("некорректный ID")
+	}
+	if like != 0 && like != 1 {
+		return ErrInvalidLike
+	}
+
+	method, err := s.repo.FindByID(ctx, methodID)
+	if err != nil {
+		return err
+	}
+	if !method.IsPublished() {
+		return ds.ErrMigrationMethodNotFound
+	}
+
+	return s.repo.SetLike(ctx, methodID, userID, like)
 }

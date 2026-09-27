@@ -1,13 +1,11 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    email VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL
 );
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
-UPDATE users SET password = '!' WHERE password IS NULL;
-ALTER TABLE users ALTER COLUMN password SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+    ON users (email);
 
 CREATE TABLE IF NOT EXISTS migration_methods (
     id BIGSERIAL PRIMARY KEY,
@@ -26,75 +24,6 @@ CREATE TABLE IF NOT EXISTS migration_methods (
         FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT
 );
 
--- Convert databases created by older versions from object keys to permanent
--- public URLs. The block is safe to run repeatedly.
-ALTER TABLE migration_methods
-    ADD COLUMN IF NOT EXISTS image_url VARCHAR(2048),
-    ADD COLUMN IF NOT EXISTS video_url VARCHAR(2048),
-    ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
-
-ALTER TABLE migration_methods
-    ALTER COLUMN description DROP NOT NULL,
-    ALTER COLUMN description DROP DEFAULT,
-    ALTER COLUMN time_in_gb DROP NOT NULL,
-    ALTER COLUMN time_in_gb DROP DEFAULT,
-    ALTER COLUMN reliability DROP NOT NULL,
-    ALTER COLUMN reliability DROP DEFAULT,
-    ALTER COLUMN published_at DROP NOT NULL;
-
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'migration_methods'
-          AND column_name = 'image_key'
-    ) THEN
-        EXECUTE $sql$
-            UPDATE migration_methods
-            SET image_url = 'http://localhost:9000/data-migration-service/' || image_key
-            WHERE NULLIF(image_url, '') IS NULL
-              AND NULLIF(image_key, '') IS NOT NULL
-        $sql$;
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'migration_methods'
-          AND column_name = 'video_key'
-    ) THEN
-        EXECUTE $sql$
-            UPDATE migration_methods
-            SET video_url = 'http://localhost:9000/data-migration-service/' || video_key
-            WHERE NULLIF(video_url, '') IS NULL
-              AND NULLIF(video_key, '') IS NOT NULL
-        $sql$;
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'migration_methods'
-          AND column_name = 'formed_at'
-    ) THEN
-        EXECUTE $sql$
-            UPDATE migration_methods
-            SET published_at = formed_at
-            WHERE published_at IS NULL AND status <> 'draft'
-        $sql$;
-        EXECUTE 'ALTER TABLE migration_methods DROP COLUMN formed_at';
-    END IF;
-END
-$$;
-
-ALTER TABLE migration_methods
-    DROP COLUMN IF EXISTS image_key,
-    DROP COLUMN IF EXISTS video_key;
-
 CREATE UNIQUE INDEX IF NOT EXISTS ux_migration_methods_creator_draft
     ON migration_methods (creator_id)
     WHERE status = 'draft';
@@ -106,132 +35,81 @@ CREATE TABLE IF NOT EXISTS migration_method_likes (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     method_id BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_migration_method_likes_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
     CONSTRAINT fk_migration_method_likes_method
-        FOREIGN KEY (method_id) REFERENCES migration_methods(id) ON DELETE RESTRICT,
-    CONSTRAINT unique_user_method_like UNIQUE (user_id, method_id)
+        FOREIGN KEY (method_id) REFERENCES migration_methods(id) ON DELETE RESTRICT
 );
 
-INSERT INTO users (email, password)
-VALUES
-    ('student@example.com', '!'),
-    ('analyst@example.com', '!'),
-    ('engineer@example.com', '!'),
-    ('architect@example.com', '!'),
-    ('reviewer@example.com', '!')
-ON CONFLICT (email) DO NOTHING;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_method
+    ON migration_method_likes (user_id, method_id);
 
-INSERT INTO migration_methods (
-    title,
-    description,
-    status,
-    image_url,
-    video_url,
-    time_in_gb,
-    reliability,
-    published_at,
-    creator_id
+-- Пользователь с ID 1 временно используется обработчиками до появления авторизации.
+INSERT INTO users (id, email, password)
+VALUES
+    (1, 'student@example.com', '!'),
+    (2, 'analyst@example.com', '!'),
+    (3, 'engineer@example.com', '!'),
+    (4, 'architect@example.com', '!'),
+    (5, 'reviewer@example.com', '!')
+ON CONFLICT DO NOTHING;
+
+SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users), true);
+
+-- Новые карточки используют те же публичные пары изображений и видео.
+WITH media(name, image_url, video_url) AS (
+    VALUES
+        ('online', 'http://localhost:9000/data-migration-service/online.png', 'http://localhost:9000/data-migration-service/online.mp4'),
+        ('offline', 'http://localhost:9000/data-migration-service/offline.png', 'http://localhost:9000/data-migration-service/offline.mp4'),
+        ('replication', 'http://localhost:9000/data-migration-service/replication.png', 'http://localhost:9000/data-migration-service/replication.mp4'),
+        ('hybrid', 'http://localhost:9000/data-migration-service/hybrid.png', 'http://localhost:9000/data-migration-service/hybrid.mp4'),
+        ('elt', 'http://localhost:9000/data-migration-service/elt.png', 'http://localhost:9000/data-migration-service/elt.mp4'),
+        ('physical', 'http://localhost:9000/data-migration-service/physical.png', 'http://localhost:9000/data-migration-service/physical.mp4'),
+        ('audit', 'http://localhost:9000/data-migration-service/audit.png', 'http://localhost:9000/data-migration-service/audit.mp4')
+), seed(title, description, status, media_name, time_in_gb, reliability, email) AS (
+    VALUES
+        -- У пользователя 1 шесть опубликованных услуг, один черновик и одна удаленная карточка.
+        ('Онлайн-миграция', NULL, 'draft', 'online', NULL, NULL, 'student@example.com'),
+        ('Репликация данных', 'Организация постоянной синхронизации между исходной и целевой инфраструктурой.', 'published', 'replication', 0.08, 0.9995, 'student@example.com'),
+        ('Аудит и валидация', 'Проверка стратегии и результатов переноса данных.', 'published', 'audit', 0.10, 0.9900, 'student@example.com'),
+        ('Потоковая миграция', 'Постепенный перенос новых записей без остановки источника.', 'published', 'online', 0.07, 0.9980, 'student@example.com'),
+        ('Миграция без простоя', 'Переключение на целевую систему после синхронизации изменений.', 'published', 'hybrid', 0.11, 0.9997, 'student@example.com'),
+        ('Синхронизация архивов', 'Перенос архивов с проверкой целостности каждого пакета.', 'published', 'replication', 0.18, 0.9960, 'student@example.com'),
+        ('Проверка совместимости', 'Оценка схем и форматов перед переносом данных.', 'published', 'audit', 0.20, 0.9950, 'student@example.com'),
+        ('Архивная миграция', 'Карточка логически удаленной услуги.', 'deleted', NULL, 0.50, 0.9500, 'student@example.com'),
+
+        ('Офлайн-миграция', 'Пакетный перенос больших объемов в технологическое окно.', 'published', 'offline', 0.12, 0.9990, 'engineer@example.com'),
+        ('Гибридная миграция', 'Поэтапный перенос с офлайн-загрузкой базового массива.', 'published', 'hybrid', 0.15, 0.9970, 'engineer@example.com'),
+        ('Физическая миграция', 'Перенос больших массивов на защищенных накопителях.', 'published', 'physical', 0.05, 0.9999, 'engineer@example.com'),
+        ('Черновик инженерной миграции', NULL, 'draft', 'physical', NULL, NULL, 'engineer@example.com'),
+
+        ('ETL-миграция', 'Перенос данных с изменением формата и схемы.', 'published', 'elt', 0.25, 0.9950, 'analyst@example.com'),
+        ('Преобразование схемы', 'Сопоставление и преобразование полей исходной базы.', 'published', 'elt', 0.22, 0.9940, 'analyst@example.com'),
+        ('Очистка данных', 'Удаление дубликатов и нормализация перед переносом.', 'published', 'audit', 0.30, 0.9920, 'analyst@example.com'),
+        ('Черновик аналитической миграции', NULL, 'draft', 'elt', NULL, NULL, 'analyst@example.com'),
+
+        ('Миграция ЦОД', 'Перенос между центрами обработки данных.', 'published', 'offline', 0.16, 0.9980, 'architect@example.com'),
+        ('Планирование перехода', 'Планирование этапов и контрольных точек миграции.', 'published', 'hybrid', 0.21, 0.9970, 'architect@example.com'),
+        ('Резервная площадка', 'Синхронизация данных с резервной площадкой.', 'published', 'physical', 0.14, 0.9990, 'architect@example.com'),
+        ('Черновик архитектурной миграции', NULL, 'draft', 'offline', NULL, NULL, 'architect@example.com'),
+
+        ('Тестовый перенос', 'Пробный перенос набора данных перед основным запуском.', 'published', 'online', 0.28, 0.9910, 'reviewer@example.com'),
+        ('Контроль качества', 'Сравнение результатов переноса с исходными данными.', 'published', 'audit', 0.19, 0.9960, 'reviewer@example.com'),
+        ('Проверка отката', 'Проверка возврата к исходной системе после сбоя.', 'published', 'replication', 0.24, 0.9930, 'reviewer@example.com'),
+        ('Черновик проверки миграции', NULL, 'draft', 'audit', NULL, NULL, 'reviewer@example.com')
 )
-SELECT seed.title,
-       seed.description,
-       seed.status,
-       seed.image_url,
-       seed.video_url,
-       seed.time_in_gb,
-       seed.reliability,
+INSERT INTO migration_methods (
+    title, description, status, image_url, video_url,
+    time_in_gb, reliability, published_at, creator_id
+)
+SELECT seed.title, seed.description, seed.status, media.image_url, media.video_url,
+       seed.time_in_gb, seed.reliability,
        CASE WHEN seed.status = 'draft' THEN NULL ELSE NOW() END,
        users.id
-FROM (
-    VALUES
-        (
-            'Онлайн-миграция',
-            NULL,
-            'draft',
-            'http://localhost:9000/data-migration-service/online.png',
-            'http://localhost:9000/data-migration-service/online.mp4',
-            NULL,
-            NULL,
-            'student@example.com'
-        ),
-        (
-            'Офлайн-миграция',
-            'Разовый пакетный перенос больших объемов данных во время планового технологического окна...',
-            'published',
-            'http://localhost:9000/data-migration-service/offline.png',
-            'http://localhost:9000/data-migration-service/offline.mp4',
-            0.12,
-            0.9990,
-            'engineer@example.com'
-        ),
-        (
-            'Репликация данных',
-            'Организация постоянной синхронизации данных между исходной и целевой инфраструктурой...',
-            'published',
-            'http://localhost:9000/data-migration-service/replication.png',
-            'http://localhost:9000/data-migration-service/replication.mp4',
-            0.08,
-            0.9995,
-            'student@example.com'
-        ),
-        (
-            'Гибридная миграция',
-            'Поэтапный перенос инфраструктуры, сочетающий офлайн-загрузку базового массива данных...',
-            'published',
-            'http://localhost:9000/data-migration-service/hybrid.png',
-            'http://localhost:9000/data-migration-service/hybrid.mp4',
-            0.15,
-            0.9970,
-            'engineer@example.com'
-        ),
-        (
-            'ETL-миграция',
-            'Перенос данных с их параллельным изменением: заменой формата, изменением схемы базы данных...',
-            'published',
-            'http://localhost:9000/data-migration-service/elt.png',
-            'http://localhost:9000/data-migration-service/elt.mp4',
-            0.25,
-            0.9950,
-            'analyst@example.com'
-        ),
-        (
-            'Физическая миграция',
-            'Перенос критически больших массивов данных с использованием физических защищенных накопителей...',
-            'published',
-            'http://localhost:9000/data-migration-service/physical.png',
-            'http://localhost:9000/data-migration-service/physical.mp4',
-            0.05,
-            0.9999,
-            'engineer@example.com'
-        ),
-        (
-            'Аудит и валидация',
-            'Комплексное сопровождение процесса миграции: от разработки стратегии до тестовой верификации...',
-            'published',
-            'http://localhost:9000/data-migration-service/audit.png',
-            'http://localhost:9000/data-migration-service/audit.mp4',
-            0.10,
-            0.9900,
-            'student@example.com'
-        ),
-        (
-            'Архивная миграция',
-            'Карточка логически удаленной услуги...',
-            'deleted',
-            NULL,
-            NULL,
-            0.50,
-            0.9500,
-            'student@example.com'
-        )
-) AS seed(title, description, status, image_url, video_url, time_in_gb, reliability, email)
+FROM seed
 JOIN users ON users.email = seed.email
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM migration_methods existing
-    WHERE existing.title = seed.title
-);
+LEFT JOIN media ON media.name = seed.media_name
+ON CONFLICT DO NOTHING;
 
 INSERT INTO migration_method_likes (user_id, method_id)
 SELECT users.id, methods.id
@@ -251,7 +129,18 @@ FROM (
         ('analyst@example.com', 'Аудит и валидация'),
         ('engineer@example.com', 'Аудит и валидация'),
         ('architect@example.com', 'Аудит и валидация'),
-        ('reviewer@example.com', 'Аудит и валидация')
+        ('reviewer@example.com', 'Аудит и валидация'),
+        ('student@example.com', 'Офлайн-миграция'),
+        ('student@example.com', 'ETL-миграция'),
+        ('student@example.com', 'Миграция ЦОД'),
+        ('analyst@example.com', 'Потоковая миграция'),
+        ('analyst@example.com', 'Планирование перехода'),
+        ('engineer@example.com', 'Миграция без простоя'),
+        ('engineer@example.com', 'Очистка данных'),
+        ('architect@example.com', 'Потоковая миграция'),
+        ('architect@example.com', 'Тестовый перенос'),
+        ('reviewer@example.com', 'Миграция ЦОД'),
+        ('reviewer@example.com', 'Синхронизация архивов')
 ) AS seed(email, title)
 JOIN users ON users.email = seed.email
 JOIN migration_methods methods ON methods.title = seed.title

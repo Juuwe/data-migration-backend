@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,21 +23,36 @@ func TestRouterContainsAssignmentRoutes(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(workingDirectory) })
 
 	gin.SetMode(gin.TestMode)
-	router := NewRouter(service.NewMigrationMethodService(nil))
+	router := NewRouter(service.NewMigrationMethodService(nil), service.NewUserService(nil))
 
 	want := map[string]struct{}{
-		"GET /feed":                {},
-		"GET /grid":                {},
-		"GET /add":                 {},
-		"POST /add":                {},
-		"POST /add/publish":        {},
-		"POST /methods/:id/delete": {},
+		"GET /api/v1/methods":           {},
+		"GET /api/v1/methods/feed":      {},
+		"GET /api/v1/methods/:id":       {},
+		"GET /api/v1/methods/:id/next":  {},
+		"GET /api/v1/methods/draft":     {},
+		"POST /api/v1/methods":          {},
+		"PUT /api/v1/methods/publish":   {},
+		"DELETE /api/v1/methods/:id":    {},
+		"POST /api/v1/methods/:id/like": {},
+		"POST /api/v1/users":            {},
+		"POST /api/v1/users/login":      {},
+		"POST /api/v1/users/logout":     {},
 	}
 
 	for _, route := range router.Routes() {
+		if route.Path != "/static/*filepath" && (len(route.Path) < len("/api/v1/") || route.Path[:len("/api/v1/")] != "/api/v1/") {
+			t.Fatalf("route %s %s has an unexpected path", route.Method, route.Path)
+		}
 		delete(want, route.Method+" "+route.Path)
 	}
 	if len(want) != 0 {
 		t.Fatalf("router is missing routes: %v", want)
+	}
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/static/images/default.svg", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /static/images/default.svg: status = %d, want 200", response.Code)
 	}
 }

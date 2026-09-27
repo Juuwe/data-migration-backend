@@ -16,18 +16,24 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 type repositoryStub struct {
-	draft         ds.MigrationMethod
-	draftErr      error
-	method        ds.MigrationMethod
-	methodErr     error
-	published     []ds.MigrationMethod
-	publishedErr  error
-	created       *ds.MigrationMethod
-	updated       *ds.MigrationMethod
-	deleteID      int64
-	createErr     error
-	updateErr     error
-	softDeleteErr error
+	draft              ds.MigrationMethod
+	draftErr           error
+	method             ds.MigrationMethod
+	methodErr          error
+	published          []ds.MigrationMethod
+	publishedErr       error
+	created            *ds.MigrationMethod
+	updated            *ds.MigrationMethod
+	deleteID           int64
+	deleteCreatorID    int64
+	likeMethodID       int64
+	likeUserID         int64
+	likeValue          int
+	likeCalls          int
+	createErr          error
+	updateErr          error
+	softDeleteErr      error
+	findDraftCreatorID int64
 }
 
 func (r *repositoryStub) FindByID(context.Context, int64) (ds.MigrationMethod, error) {
@@ -38,7 +44,8 @@ func (r *repositoryStub) FindNextPublishedAfterID(context.Context, int64) (ds.Mi
 	return r.method, r.methodErr
 }
 
-func (r *repositoryStub) FindDraft(context.Context, int64) (ds.MigrationMethod, error) {
+func (r *repositoryStub) FindDraft(_ context.Context, creatorID int64) (ds.MigrationMethod, error) {
+	r.findDraftCreatorID = creatorID
 	return r.draft, r.draftErr
 }
 
@@ -70,22 +77,34 @@ func (r *repositoryStub) Update(_ context.Context, method *ds.MigrationMethod) e
 	return r.updateErr
 }
 
-func (r *repositoryStub) SoftDeleteSQL(_ context.Context, id int64) error {
+func (r *repositoryStub) SoftDeleteSQL(_ context.Context, id, creatorID int64) error {
 	r.deleteID = id
+	r.deleteCreatorID = creatorID
 	return r.softDeleteErr
+}
+
+func (r *repositoryStub) SetLike(_ context.Context, methodID, userID int64, like int) error {
+	r.likeMethodID = methodID
+	r.likeUserID = userID
+	r.likeValue = like
+	r.likeCalls++
+	return nil
 }
 
 func TestGetDraftReturnsMissingDraftWithoutError(t *testing.T) {
 	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
 	svc := NewMigrationMethodService(repo)
 
-	_, exists, err := svc.GetDraft(context.Background(), 1)
+	_, exists, err := svc.GetDraft(context.Background(), 3)
 
 	if err != nil {
 		t.Fatalf("GetDraft() error = %v", err)
 	}
 	if exists {
 		t.Fatal("GetDraft() exists = true, want false")
+	}
+	if repo.findDraftCreatorID != 3 {
+		t.Fatalf("FindDraft() creator ID = %d, want 3", repo.findDraftCreatorID)
 	}
 }
 
@@ -274,7 +293,7 @@ func TestPublishDraft(t *testing.T) {
 	repo := &repositoryStub{draft: ds.MigrationMethod{ID: 2, Status: ds.StatusDraft}}
 	svc := NewMigrationMethodService(repo)
 
-	err := svc.PublishDraft(context.Background(), 1, "  Проверенное описание  ", 0.25, 0.999)
+	err := svc.PublishDraft(context.Background(), 3, "  Проверенное описание  ", 0.25, 0.999)
 
 	if err != nil {
 		t.Fatalf("PublishDraft() error = %v", err)
@@ -284,6 +303,9 @@ func TestPublishDraft(t *testing.T) {
 	}
 	if repo.updated.Status != ds.StatusPublished {
 		t.Errorf("updated status = %q", repo.updated.Status)
+	}
+	if repo.findDraftCreatorID != 3 {
+		t.Errorf("FindDraft() creator ID = %d, want 3", repo.findDraftCreatorID)
 	}
 	if repo.updated.Description == nil {
 		t.Fatal("updated description is nil")
@@ -326,10 +348,41 @@ func TestDeleteMethodUsesRepositorySQLMethod(t *testing.T) {
 	repo := &repositoryStub{}
 	svc := NewMigrationMethodService(repo)
 
-	if err := svc.DeleteMethod(context.Background(), 9); err != nil {
+	if err := svc.DeleteMethod(context.Background(), 9, 3); err != nil {
 		t.Fatalf("DeleteMethod() error = %v", err)
 	}
 	if repo.deleteID != 9 {
 		t.Fatalf("SoftDeleteSQL() id = %d, want 9", repo.deleteID)
+	}
+	if repo.deleteCreatorID != 3 {
+		t.Fatalf("SoftDeleteSQL() creator ID = %d, want 3", repo.deleteCreatorID)
+	}
+}
+
+func TestSetLikeAllowsOnlyPublishedMethodsAndValidValues(t *testing.T) {
+	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}}
+	svc := NewMigrationMethodService(repo)
+
+	for _, value := range []int{1, 0} {
+		if err := svc.SetLike(context.Background(), 7, 3, value); err != nil {
+			t.Fatalf("SetLike(%d) error = %v", value, err)
+		}
+		if repo.likeMethodID != 7 || repo.likeUserID != 3 || repo.likeValue != value {
+			t.Fatalf("SetLike(%d) delegated method=%d user=%d value=%d", value, repo.likeMethodID, repo.likeUserID, repo.likeValue)
+		}
+	}
+	if repo.likeCalls != 2 {
+		t.Fatalf("SetLike() calls = %d, want 2", repo.likeCalls)
+	}
+
+	if err := svc.SetLike(context.Background(), 7, 3, 2); !errors.Is(err, ErrInvalidLike) {
+		t.Fatalf("SetLike(2) error = %v, want invalid like", err)
+	}
+	repo.method.Status = ds.StatusDeleted
+	if err := svc.SetLike(context.Background(), 7, 3, 1); !errors.Is(err, ds.ErrMigrationMethodNotFound) {
+		t.Fatalf("SetLike(deleted) error = %v, want not found", err)
+	}
+	if repo.likeCalls != 2 {
+		t.Fatalf("SetLike() calls after invalid requests = %d, want 2", repo.likeCalls)
 	}
 }

@@ -10,36 +10,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type PageContext[T any] struct {
-	Title        string
-	ActiveNav    string
-	IsLightTheme bool
-	Data         T
-}
-
-func NewPageContext[T any](title, activeNav string, isLightTheme bool, data T) PageContext[T] {
-	return PageContext[T]{
-		Title:        title,
-		ActiveNav:    activeNav,
-		IsLightTheme: isLightTheme,
-		Data:         data,
-	}
-}
-
 type GridPageData struct {
-	Methods []service.MigrationMethodView
-	MinTime float64
-	MaxTime float64
+	Methods []service.MigrationMethodView `json:"methods"`
+	MinTime float64                       `json:"min_time"`
+	MaxTime float64                       `json:"max_time"`
 }
 
 type FeedPageData struct {
-	Method service.MigrationMethodView
+	Method service.MigrationMethodView `json:"method"`
 }
 
 type AddPageData struct {
-	Draft  service.MigrationMethodView
-	Exists bool
-	Error  string
+	Draft  service.MigrationMethodView `json:"draft"`
+	Exists bool                        `json:"exists"`
 }
 
 type MigrationMethodHandler struct {
@@ -72,18 +55,25 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 		methods = []service.MigrationMethodView{}
 	}
 
-	page := NewPageContext("Плитка услуг", "grid", true, GridPageData{
+	page := GridPageData{
 		Methods: methods,
 		MinTime: minTime,
 		MaxTime: maxTime,
-	})
+	}
 
-	c.HTML(http.StatusOK, "grid", page)
+	c.JSON(http.StatusOK, page)
 }
 
 func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
-	idStr := c.Query("id")
-	nextStr := c.Query("next")
+	h.getFeedItem(c, false)
+}
+
+func (h *MigrationMethodHandler) GetNextFeedItem(c *gin.Context) {
+	h.getFeedItem(c, true)
+}
+
+func (h *MigrationMethodHandler) getFeedItem(c *gin.Context, next bool) {
+	idStr := c.Param("id")
 	ctx := c.Request.Context()
 
 	var (
@@ -95,7 +85,7 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		var published []service.MigrationMethodView
 		published, err = h.s.GetPublished(ctx)
 		if err != nil || len(published) == 0 {
-			c.AbortWithStatus(http.StatusNotFound)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Услуга не найдена"})
 			return
 		}
 		method = published[0]
@@ -103,103 +93,134 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		var id int64
 		id, err = strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			c.AbortWithStatus(http.StatusBadRequest)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
 			return
 		}
 
-		if nextStr == "true" {
+		if next {
 			method, err = h.s.GetNextPublishedAfterID(ctx, id)
 		} else {
 			method, err = h.s.GetByID(ctx, id)
 		}
 
 		if err != nil {
-			c.AbortWithStatus(http.StatusNotFound)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Услуга не найдена"})
 			return
 		}
 	}
 
-	page := NewPageContext("Лента", "feed", false, FeedPageData{Method: method})
-	c.HTML(http.StatusOK, "feed", page)
+	c.JSON(http.StatusOK, FeedPageData{Method: method})
 }
 
 func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
-	draft, exists, err := h.s.GetDraft(c.Request.Context(), 1)
+	draft, exists, err := h.s.GetDraft(c.Request.Context(), currentCreatorID())
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "add", NewPageContext("Ошибка", "add", true, AddPageData{
-			Error: "Не удалось загрузить черновик",
-		}))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить черновик"})
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Черновик не найден"})
 		return
 	}
 
-	page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
+	page := AddPageData{
 		Draft:  draft,
 		Exists: exists,
-	})
-	c.HTML(http.StatusOK, "add", page)
+	}
+	c.JSON(http.StatusOK, page)
 }
 
 func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
-	userID := int64(1)
-	title := c.PostForm("title")
-
-	err := h.s.CreateDraftMethod(c.Request.Context(), title, userID)
-	if err != nil {
-		page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
-			Error: err.Error(),
-		})
-		c.HTML(http.StatusBadRequest, "add", page)
+	userID := currentCreatorID()
+	var request struct {
+		Title string `json:"title"`
+	}
+	if err := bindJSON(c, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, "/add")
+	err := h.s.CreateDraftMethod(c.Request.Context(), request.Title, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Черновик создан"})
 }
 
 func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
-	userID := int64(1)
-	desc := c.PostForm("description")
-	timeInGb, timeErr := strconv.ParseFloat(c.PostForm("time_in_gb"), 64)
-	reliability, reliabilityErr := strconv.ParseFloat(c.PostForm("reliability"), 64)
-	if timeErr != nil || reliabilityErr != nil {
-		h.renderPublishError(c, userID, "Поля времени и надежности должны содержать числа")
+	userID := currentCreatorID()
+	var request struct {
+		Description string  `json:"description"`
+		TimeInGb    float64 `json:"time_in_gb"`
+		Reliability float64 `json:"reliability"`
+	}
+	if err := bindJSON(c, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	err := h.s.PublishDraft(c.Request.Context(), userID, desc, timeInGb, reliability)
+	err := h.s.PublishDraft(c.Request.Context(), userID, request.Description, request.TimeInGb, request.Reliability)
 	if err != nil {
-		h.renderPublishError(c, userID, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, "/feed")
-}
-
-func (h *MigrationMethodHandler) renderPublishError(c *gin.Context, userID int64, message string) {
-	draft, exists, _ := h.s.GetDraft(c.Request.Context(), userID)
-	page := NewPageContext("Новая услуга миграции", "add", true, AddPageData{
-		Draft:  draft,
-		Exists: exists,
-		Error:  message,
-	})
-	c.HTML(http.StatusBadRequest, "add", page)
+	c.JSON(http.StatusOK, gin.H{"message": "Черновик опубликован"})
 }
 
 func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.String(http.StatusBadRequest, "Некорректный ID")
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
 		return
 	}
 
-	err = h.s.DeleteMethod(c.Request.Context(), id)
+	err = h.s.DeleteMethod(c.Request.Context(), id, currentCreatorID())
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
 			status = http.StatusNotFound
 		}
-		c.String(status, err.Error())
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, "/grid")
+	c.JSON(http.StatusOK, gin.H{"message": "Услуга удалена"})
+}
+
+func (h *MigrationMethodHandler) SetLike(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		return
+	}
+
+	var request struct {
+		Like *int `json:"like"`
+	}
+	if err := bindJSON(c, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if request.Like == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "поле like обязательно"})
+		return
+	}
+
+	err = h.s.SetLike(c.Request.Context(), id, currentCreatorID(), *request.Like)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, service.ErrInvalidLike):
+			status = http.StatusBadRequest
+		case errors.Is(err, ds.ErrMigrationMethodNotFound):
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"like": *request.Like})
 }

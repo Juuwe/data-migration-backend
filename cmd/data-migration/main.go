@@ -29,8 +29,9 @@ func main() {
 	}
 
 	svc := service.NewMigrationMethodService(repo)
+	userSvc := service.NewUserService(repo)
 
-	r := api.NewRouter(svc)
+	r := api.NewRouter(svc, userSvc)
 
 	log.Printf("Сервер запущен на http://localhost:%d", cfg.WebServer.Port)
 	if err := r.Run(cfg.WebServer.Address()); err != nil {

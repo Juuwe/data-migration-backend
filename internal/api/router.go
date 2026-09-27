@@ -5,38 +5,11 @@ import (
 
 	"github.com/Juuwe/data-migration-backend/internal/app/handler"
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
-	"github.com/gin-contrib/multitemplate"
 	"github.com/gin-gonic/gin"
 )
 
-func createMyRender() multitemplate.Renderer {
-	r := multitemplate.NewRenderer()
-
-	r.AddFromFiles("feed",
-		"internal/templates/base.html",
-		"internal/templates/bottom_nav.html",
-		"internal/templates/service_card.html",
-		"internal/templates/feed.html",
-	)
-	r.AddFromFiles("grid",
-		"internal/templates/base.html",
-		"internal/templates/bottom_nav.html",
-		"internal/templates/service_card.html",
-		"internal/templates/grid.html",
-	)
-	r.AddFromFiles("add",
-		"internal/templates/base.html",
-		"internal/templates/bottom_nav.html",
-		"internal/templates/add.html",
-	)
-
-	return r
-}
-
-func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
+func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService) *gin.Engine {
 	r := gin.Default()
-
-	r.HTMLRender = createMyRender()
 
 	// Находим папку static в корне или в internal/static
 	staticDir := "./static"
@@ -46,14 +19,20 @@ func NewRouter(svc *service.MigrationMethodService) *gin.Engine {
 	r.Static("/static", staticDir)
 
 	migrationMethodsHandler := handler.NewMigrationMethodHandler(svc)
+	userHandler := handler.NewUserHandler(userSvc)
 
-	r.GET("/feed", migrationMethodsHandler.GetFeedItem)
-	r.GET("/grid", migrationMethodsHandler.GetGrid)
-	r.GET("/add", migrationMethodsHandler.ShowAddMethodPage)
-
-	r.POST("/add", migrationMethodsHandler.CreateDraftMethod)
-	r.POST("/add/publish", migrationMethodsHandler.PublishDraftMethod)
-	r.POST("/methods/:id/delete", migrationMethodsHandler.SoftDeleteMethod)
+	r.GET("/api/v1/methods", migrationMethodsHandler.GetGrid)
+	r.GET("/api/v1/methods/feed", migrationMethodsHandler.GetFeedItem)
+	r.GET("/api/v1/methods/:id", migrationMethodsHandler.GetFeedItem)
+	r.GET("/api/v1/methods/:id/next", migrationMethodsHandler.GetNextFeedItem)
+	r.GET("/api/v1/methods/draft", migrationMethodsHandler.ShowAddMethodPage)
+	r.POST("/api/v1/methods", migrationMethodsHandler.CreateDraftMethod)
+	r.PUT("/api/v1/methods/publish", migrationMethodsHandler.PublishDraftMethod)
+	r.DELETE("/api/v1/methods/:id", migrationMethodsHandler.SoftDeleteMethod)
+	r.POST("/api/v1/methods/:id/like", migrationMethodsHandler.SetLike)
+	r.POST("/api/v1/users", userHandler.Register)
+	r.POST("/api/v1/users/login", userHandler.Authenticate)
+	r.POST("/api/v1/users/logout", userHandler.Logout)
 
 	return r
 }

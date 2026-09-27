@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -35,7 +36,7 @@ func New(cfg Config) (*PosrtgresMigrationMethodsRepo, error) {
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s",
 		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode, cfg.Timezone)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -178,7 +179,7 @@ func (r *PosrtgresMigrationMethodsRepo) Create(ctx context.Context, m *ds.Migrat
 }
 
 func (r *PosrtgresMigrationMethodsRepo) Update(ctx context.Context, m *ds.MigrationMethod) error {
-	result := r.db.WithContext(ctx).Model(m).Updates(map[string]any{
+	result := r.db.WithContext(ctx).Model(m).Where("status = ?", ds.StatusDraft).Updates(map[string]any{
 		"description":  m.Description,
 		"time_in_gb":   m.TimeInGb,
 		"reliability":  m.Reliability,
@@ -194,10 +195,10 @@ func (r *PosrtgresMigrationMethodsRepo) Update(ctx context.Context, m *ds.Migrat
 	return nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) SoftDeleteSQL(ctx context.Context, id int64) error {
-	query := `UPDATE migration_methods SET status = 'deleted' WHERE id = $1 AND status != 'deleted'`
+func (r *PosrtgresMigrationMethodsRepo) SoftDeleteSQL(ctx context.Context, id, creatorID int64) error {
+	query := `UPDATE migration_methods SET status = 'deleted' WHERE id = $1 AND creator_id = $2 AND status IN ('draft', 'published')`
 
-	result, err := r.rawDB.ExecContext(ctx, query, id)
+	result, err := r.rawDB.ExecContext(ctx, query, id, creatorID)
 	if err != nil {
 		return fmt.Errorf("delete migration method: %w", err)
 	}
@@ -211,5 +212,22 @@ func (r *PosrtgresMigrationMethodsRepo) SoftDeleteSQL(ctx context.Context, id in
 		return fmt.Errorf("%w: карточка не найдена или уже удалена", ErrNotFound)
 	}
 
+	return nil
+}
+
+func (r *PosrtgresMigrationMethodsRepo) SetLike(ctx context.Context, methodID, userID int64, like int) error {
+	if like == 1 {
+		entry := ds.MigrationMethodLike{MethodID: methodID, UserID: userID}
+		if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&entry).Error; err != nil {
+			return fmt.Errorf("like migration method: %w", err)
+		}
+		return nil
+	}
+
+	if err := r.db.WithContext(ctx).
+		Where("method_id = ? AND user_id = ?", methodID, userID).
+		Delete(&ds.MigrationMethodLike{}).Error; err != nil {
+		return fmt.Errorf("unlike migration method: %w", err)
+	}
 	return nil
 }
