@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Juuwe/data-migration-backend/internal/app/serializer"
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 )
 
@@ -19,6 +20,9 @@ var (
 	ErrDraftTitleRequired = errors.New("название не может быть пустым")
 	ErrDraftTitleTooLong  = errors.New("название не может быть длиннее 255 символов")
 	ErrDraftAlreadyExists = errors.New("черновик уже существует")
+	ErrInvalidDescription = errors.New("описание не может быть пустым")
+	ErrInvalidTimeInGb    = errors.New("время на Гб должно быть больше нуля")
+	ErrInvalidReliability = errors.New("коэффициент надежности должен быть от 0 до 1")
 )
 
 type MigrationMethodRepository interface {
@@ -53,49 +57,27 @@ func NewMigrationMethodService(repo MigrationMethodRepository, media ...*MediaSe
 	}
 }
 
-type MigrationMethodView struct {
-	ds.MigrationMethod
-	ImageURL             string  `json:"image_url"`
-	VideoURL             string  `json:"video_url"`
-	CreatedByCurrentUser bool    `json:"created_by_current_user"`
-	LikesCount           int     `json:"likes_count"`
-	TimeInGb             float64 `json:"time_in_gb"`
-	Reliability          float64 `json:"reliability"`
-}
-
-func (s *MigrationMethodService) buildView(m ds.MigrationMethod, likesCount int, currentUserID int64) MigrationMethodView {
-	view := MigrationMethodView{
-		MigrationMethod:      m,
-		CreatedByCurrentUser: currentUserID > 0 && m.CreatorID == currentUserID,
-		LikesCount:           likesCount,
-	}
+func (s *MigrationMethodService) serializeMethod(m ds.MigrationMethod, likesCount int, currentUserID int64) serializer.MigrationMethod {
 	if s.media == nil {
-		view.ImageURL, view.VideoURL = DefaultImageURL, DefaultVideoURL
-	} else {
-		view.ImageURL = s.media.publicURL(m.ImageKey, DefaultImageURL)
-		view.VideoURL = s.media.publicURL(m.VideoKey, DefaultVideoURL)
+		return serializer.NewMethod(m, likesCount, currentUserID, DefaultImageURL, DefaultVideoURL)
 	}
-	if m.TimeInGb != nil {
-		view.TimeInGb = *m.TimeInGb
-	}
-	if m.Reliability != nil {
-		view.Reliability = *m.Reliability
-	}
-	return view
+	return serializer.NewMethod(m, likesCount, currentUserID,
+		s.media.publicURL(m.ImageKey, DefaultImageURL),
+		s.media.publicURL(m.VideoKey, DefaultVideoURL))
 }
 
-func (s *MigrationMethodService) buildSingleView(ctx context.Context, m *ds.MigrationMethod, currentUserID int64) (MigrationMethodView, error) {
+func (s *MigrationMethodService) serializeSingleMethod(ctx context.Context, m *ds.MigrationMethod, currentUserID int64) (serializer.MigrationMethod, error) {
 	likesCount, err := s.repo.CountMethodLikesByID(ctx, m.ID)
 	if err != nil {
 		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
 	}
 
-	return s.buildView(*m, likesCount, currentUserID), nil
+	return s.serializeMethod(*m, likesCount, currentUserID), nil
 }
 
-func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds.MigrationMethod, currentUserID int64) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) serializeMethodList(ctx context.Context, methods []ds.MigrationMethod, currentUserID int64) ([]serializer.MigrationMethod, error) {
 	if len(methods) == 0 {
-		return make([]MigrationMethodView, 0), nil
+		return make([]serializer.MigrationMethod, 0), nil
 	}
 
 	methodIDs := make([]int64, len(methods))
@@ -108,110 +90,110 @@ func (s *MigrationMethodService) buildViewList(ctx context.Context, methods []ds
 		log.Printf("Failed to fetch likes count batch: %v", err)
 	}
 
-	views := make([]MigrationMethodView, len(methods))
+	result := make([]serializer.MigrationMethod, len(methods))
 	for i := range methods {
 		id := methods[i].ID
-		views[i] = s.buildView(methods[i], likesMap[id], currentUserID)
+		result[i] = s.serializeMethod(methods[i], likesMap[id], currentUserID)
 	}
 
-	return views, nil
+	return result, nil
 }
 
-func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) (MigrationMethodView, bool, error) {
+func (s *MigrationMethodService) GetDraft(ctx context.Context, creatorID int64) (serializer.MigrationMethod, bool, error) {
 	draft, err := s.repo.FindDraft(ctx, creatorID)
 	if err != nil {
 		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
-			return MigrationMethodView{}, false, nil
+			return serializer.MigrationMethod{}, false, nil
 		}
-		return MigrationMethodView{}, false, err
+		return serializer.MigrationMethod{}, false, err
 	}
-	return s.buildView(draft, 0, creatorID), true, nil
+	return s.serializeMethod(draft, 0, creatorID), true, nil
 }
 
-func (s *MigrationMethodService) GetPublished(ctx context.Context, currentUserID int64) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) GetPublished(ctx context.Context, currentUserID int64) ([]serializer.MigrationMethod, error) {
 	methods, err := s.repo.FindPublished(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.buildViewList(ctx, methods, currentUserID)
+	return s.serializeMethodList(ctx, methods, currentUserID)
 }
 
-func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id, currentUserID int64) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id, currentUserID int64) (serializer.MigrationMethod, error) {
 	m, err := s.repo.FindNextPublishedAfterID(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
-			return MigrationMethodView{}, err
+			return serializer.MigrationMethod{}, err
 		}
 
 		published, findErr := s.repo.FindPublished(ctx)
 		if findErr != nil {
-			return MigrationMethodView{}, findErr
+			return serializer.MigrationMethod{}, findErr
 		}
 		if len(published) == 0 {
-			return MigrationMethodView{}, ds.ErrMigrationMethodNotFound
+			return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 		}
 		m = published[0]
 	}
 
-	return s.buildSingleView(ctx, &m, currentUserID)
+	return s.serializeSingleMethod(ctx, &m, currentUserID)
 }
 
-func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID int64) (MigrationMethodView, error) {
+func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID int64) (serializer.MigrationMethod, error) {
 	m, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return MigrationMethodView{}, err
+		return serializer.MigrationMethod{}, err
 	}
 
 	if !m.IsPublished() {
-		return MigrationMethodView{}, ds.ErrMigrationMethodNotFound
+		return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 	}
 
-	return s.buildSingleView(ctx, &m, currentUserID)
+	return s.serializeSingleMethod(ctx, &m, currentUserID)
 }
 
-func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64, currentUserID int64) ([]MigrationMethodView, error) {
+func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64, currentUserID int64) ([]serializer.MigrationMethod, error) {
 	methods, err := s.repo.FindPublishedByTime(ctx, minTime, maxTime)
 	if err != nil {
-		return []MigrationMethodView{}, err
+		return []serializer.MigrationMethod{}, err
 	}
 
-	return s.buildViewList(ctx, methods, currentUserID)
+	return s.serializeMethodList(ctx, methods, currentUserID)
 }
 
-func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64, imageInput, videoInput MediaInput) error {
+func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64, imageInput, videoInput MediaInput) (serializer.MigrationMethod, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return ErrDraftTitleRequired
+		return serializer.MigrationMethod{}, ErrDraftTitleRequired
 	}
 	if len([]rune(title)) > 255 {
-		return ErrDraftTitleTooLong
+		return serializer.MigrationMethod{}, ErrDraftTitleTooLong
 	}
 
 	_, exists, err := s.GetDraft(ctx, creatorID)
 	if err != nil {
-		return err
+		return serializer.MigrationMethod{}, err
 	}
 	if exists {
-		return ErrDraftAlreadyExists
+		return serializer.MigrationMethod{}, ErrDraftAlreadyExists
 	}
 	if s.media == nil {
-		return errors.New("хранилище медиа не настроено")
+		return serializer.MigrationMethod{}, errors.New("хранилище медиа не настроено")
 	}
 
 	image, err := s.media.prepareImage(imageInput)
 	if err != nil {
-		return err
+		return serializer.MigrationMethod{}, err
 	}
 	video, err := s.media.prepareVideo(videoInput)
 	if err != nil {
-		return err
+		return serializer.MigrationMethod{}, err
 	}
 	if err := s.media.upload(ctx, image); err != nil {
-		return errors.Join(err, s.media.cleanup(ctx, image.key))
+		return serializer.MigrationMethod{}, errors.Join(err, s.media.cleanup(ctx, image.key))
 	}
 	if err := s.media.upload(ctx, video); err != nil {
-		return errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
+		return serializer.MigrationMethod{}, errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
 	}
 
 	m := ds.MigrationMethod{
@@ -222,29 +204,29 @@ func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title st
 		VideoKey:  video.key,
 	}
 	if err := s.repo.Create(ctx, &m); err != nil {
-		return errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
+		return serializer.MigrationMethod{}, errors.Join(err, s.media.cleanup(ctx, image.key, video.key))
 	}
-	return nil
+	return s.serializeMethod(m, 0, creatorID), nil
 }
 
-func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int64, desc string, timeInGb, reliability float64) error {
+func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int64, desc string, timeInGb, reliability float64) (serializer.MigrationMethod, error) {
 	desc = strings.TrimSpace(desc)
 	if desc == "" {
-		return errors.New("описание не может быть пустым")
+		return serializer.MigrationMethod{}, ErrInvalidDescription
 	}
 	if timeInGb <= 0 {
-		return errors.New("время на Гб должно быть больше нуля")
+		return serializer.MigrationMethod{}, ErrInvalidTimeInGb
 	}
 	if reliability < 0 || reliability > 1 {
-		return errors.New("коэффициент надежности должен быть от 0 до 1")
+		return serializer.MigrationMethod{}, ErrInvalidReliability
 	}
 
 	draft, err := s.repo.FindDraft(ctx, creatorID)
 	if err != nil {
 		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
-			return errors.New("черновик не найден")
+			return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 		}
-		return err
+		return serializer.MigrationMethod{}, err
 	}
 
 	draft.Description = &desc
@@ -254,7 +236,10 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 	publishedAt := time.Now()
 	draft.PublishedAt = &publishedAt
 
-	return s.repo.Update(ctx, &draft)
+	if err := s.repo.Update(ctx, &draft); err != nil {
+		return serializer.MigrationMethod{}, err
+	}
+	return s.serializeSingleMethod(ctx, &draft, creatorID)
 }
 
 func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id, creatorID int64) error {
@@ -266,21 +251,28 @@ func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id, creatorID
 
 var ErrInvalidLike = errors.New("значение like должно быть 0 или 1")
 
-func (s *MigrationMethodService) SetLike(ctx context.Context, methodID, userID int64, like int) error {
+func (s *MigrationMethodService) SetLike(ctx context.Context, methodID, userID int64, like int) (serializer.MigrationMethodLike, error) {
 	if methodID <= 0 || userID <= 0 {
-		return errors.New("некорректный ID")
+		return serializer.MigrationMethodLike{}, errors.New("некорректный ID")
 	}
 	if like != 0 && like != 1 {
-		return ErrInvalidLike
+		return serializer.MigrationMethodLike{}, ErrInvalidLike
 	}
 
 	method, err := s.repo.FindByID(ctx, methodID)
 	if err != nil {
-		return err
+		return serializer.MigrationMethodLike{}, err
 	}
 	if !method.IsPublished() {
-		return ds.ErrMigrationMethodNotFound
+		return serializer.MigrationMethodLike{}, ds.ErrMigrationMethodNotFound
 	}
 
-	return s.repo.SetLike(ctx, methodID, userID, like)
+	if err := s.repo.SetLike(ctx, methodID, userID, like); err != nil {
+		return serializer.MigrationMethodLike{}, err
+	}
+	likesCount, err := s.repo.CountMethodLikesByID(ctx, methodID)
+	if err != nil {
+		return serializer.MigrationMethodLike{}, err
+	}
+	return serializer.NewLike(methodID, like == 1, likesCount), nil
 }

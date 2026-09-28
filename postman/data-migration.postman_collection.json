@@ -1,23 +1,24 @@
 {
   "info": {
     "name": "Data Migration API",
-    "description": "Укажите baseUrl при необходимости. Для запросов с {{methodId}} скопируйте ID из ответа API в переменную коллекции. Перед созданием черновика опубликуйте существующий черновик пользователя 1. Для создания выберите файлы image и video в Postman.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8081" },
-    { "key": "methodId", "value": "" }
+    { "key": "methodId", "value": "" },
+    { "key": "mintime", "value": 0.1 },
+    { "key": "maxTime", "value": 0.8 }
   ],
   "item": [
     {
       "name": "Список методов",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/api/methods?min_time=0.01&max_time=1.00"
+        "url": "{{baseUrl}}/api/methods?min_time=0.1&max_time=0.8"
       }
     },
     {
-      "name": "Первая карточка ленты",
+      "name": "Получение ленты без ID",
       "request": {
         "method": "GET",
         "url": "{{baseUrl}}/api/methods/feed"

@@ -1,106 +1,64 @@
 # Сервис методов миграции данных
 
-Учебный REST API на Go для просмотра, создания, публикации и логического удаления услуг миграции данных, а также регистрации пользователей.
+## HTTP-роуты
 
-## Стек
+GET-запросы, создание и публикация черновика, постановка лайка и регистрация возвращают JSON. Остальные запросы и ошибки обработчиков API возвращают только HTTP-код без тела.
 
-- Go и Gin;
-- PostgreSQL и GORM;
-- MinIO для изображений и видео;
-- Adminer для просмотра и изменения данных;
-- Docker Compose для инфраструктуры.
+| Метод | URL | Ответ | Описание | Функция |
+|---|---|---|---|---|
+| GET | `/api/methods` | 200 — `methods`, `min_time`, `max_time` | Список опубликованных методов миграции; фильтр `?min_time={min}&max_time={max}`. | `GetGrid` |
+| GET | `/api/methods/feed` | 200 — `method` | Первый опубликованный метод миграции. | `GetFeedItem` |
+| GET | `/api/methods/feed/{id}` | 200 — `method` | Опубликованный метод миграции по ID. | `GetFeedItem` |
+| GET | `/api/methods/feed/{id}?next=true` | 200 — `method` | Следующий метод миграции по ID; после последнего возвращается первый. | `GetFeedItem` |
+| GET | `/api/methods/draft` | 200 — `draft`; 404, если черновика нет | Черновик текущего пользователя. | `ShowAddMethodPage` |
+| POST | `/api/methods` | 201 — `draft`, заголовок `Location` | Создает черновик из `multipart/form-data`: `title`, `image`, `video`. | `CreateDraftMethod` |
+| PUT | `/api/methods/publish` | 200 — `method` | Публикует черновик; принимает JSON с `description`, `time_in_gb`, `reliability`. | `PublishDraftMethod` |
+| DELETE | `/api/methods/{id}` | 204 — без тела | Помечает свой метод миграции как удаленный. | `SoftDeleteMethod` |
+| POST | `/api/methods/{id}/like` | 200 — `method` с `id`, `is_liked`, `likes_count` | Ставит лайк при `{"like":1}`, снимает при `{"like":0}`. | `SetLike` |
+| POST | `/api/users` | 201 — `id`, `email` | Регистрирует пользователя по `email` и `password`. | `Register` |
+| POST | `/api/users/login` | 501 — без тела | Заглушка входа. | `Authenticate` |
+| POST | `/api/users/logout` | 501 — без тела | Заглушка выхода. | `Logout` |
 
-## Запуск
+## Таблицы и данные
 
-Требования: Go версии из `go.mod`, Docker и Docker Compose.
+Модели находятся в `internal/ds/models.go`, схема БД — в `migrations/init.sql`.
 
-1. Запустите инфраструктуру:
+### `users`
 
-   ```bash
-   docker compose up -d postgres minio minio-init adminer
-   ```
+| Поле | Тип | Ограничение | Описание |
+|---|---|---|---|
+| `id` | `INT GENERATED ALWAYS AS IDENTITY` | **PK** | ID пользователя |
+| `email` | `VARCHAR(255)` | `NOT NULL`, уникальный индекс | Адрес электронной почты |
+| `password` | `VARCHAR(255)` | `NOT NULL` | Пароль в переданном виде |
 
-   При первом создании PostgreSQL-тома файл `migrations/init.sql` выполнится автоматически. Он создаст таблицы и тестовые записи. Для ручного применения миграции к пустой базе можно выполнить:
+### `migration_methods`
 
-   ```bash
-   go run ./cmd/migrate
-   ```
+| Поле | Тип | Ограничение | Описание |
+|---|---|---|---|
+| `id` | `INT GENERATED ALWAYS AS IDENTITY` | **PK** | ID метода |
+| `creator_id` | `INT` | `NOT NULL`, **FK** → `users.id`, `ON DELETE RESTRICT` | Автор метода |
+| `title` | `VARCHAR(255)` | `NOT NULL`, уникальный индекс | Название |
+| `description` | `TEXT` | Может быть `NULL` | Описание |
+| `status` | `VARCHAR(20)` | `NOT NULL`, по умолчанию `draft`; только `draft`, `published`, `deleted` | Статус метода |
+| `image_key` | `VARCHAR(255)` | Может быть `NULL` | Ключ изображения в MinIO |
+| `video_key` | `VARCHAR(255)` | Может быть `NULL` | Ключ видео в MinIO |
+| `time_in_gb` | `NUMERIC(10,2)` | Может быть `NULL` | Время на 1 Гб |
+| `reliability` | `NUMERIC(5,4)` | Может быть `NULL` | Коэффициент надёжности |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, по умолчанию текущее время | Дата создания |
+| `published_at` | `TIMESTAMPTZ` | Может быть `NULL` | Дата публикации |
 
-2. Запустите приложение из корня проекта:
+Частичный уникальный индекс по `creator_id` действует при `status = 'draft'`: у пользователя может быть не больше одного черновика.
 
-   ```bash
-   go run ./cmd/data-migration
-   ```
+### `migration_method_likes`
 
-3. Откройте сервисы:
+| Поле | Тип | Ограничение | Описание |
+|---|---|---|---|
+| `id` | `INT GENERATED ALWAYS AS IDENTITY` | **PK** | ID лайка |
+| `user_id` | `INT` | `NOT NULL`, **FK** → `users.id`, `ON DELETE RESTRICT` | Кто поставил лайк |
+| `method_id` | `INT` | `NOT NULL`, **FK** → `migration_methods.id`, `ON DELETE RESTRICT` | Какой метод миграции отмечен |
 
-   - API: <http://localhost:8081/api/methods>;
-   - Adminer: <http://localhost:8082>;
-   - MinIO Console: <http://localhost:9001>.
+На пару (`user_id`, `method_id`) действует уникальный индекс: один пользователь может поставить методу миграции только один лайк.
 
-Для входа в Adminer укажите систему `PostgreSQL`, сервер `postgres`, базу `data_migration`, пользователя `postgres` и пароль `password123`. MinIO использует пользователя `admin` и пароль `password123`. Контейнер `minio-init` создаёт бакет `data-migration-service`, если его ещё нет, и включает для него анонимное чтение объектов. API собирает публичные URL из сохранённых ключей файлов.
-
-Если PostgreSQL-том был создан со старой версией схемы, и данные не нужны, сначала пересоздайте учебное окружение командой `docker compose down -v`, затем снова выполните первый шаг. Эта команда удаляет данные PostgreSQL из Docker-тома.
-
-## Конфигурация
-
-Приложение читает `.env` из корня проекта. Переменные окружения процесса имеют приоритет над значениями файла.
-
-| Переменная | Назначение | Значение по умолчанию |
-|---|---|---|
-| `WEB_HOST`, `WEB_PORT` | адрес HTTP-сервера | `0.0.0.0`, `8081` |
-| `DB_HOST`, `DB_PORT` | адрес PostgreSQL | `localhost`, `5432` |
-| `DB_USER`, `DB_PASSWORD`, `DB_NAME` | учетные данные и база | `postgres`, `postgres`, `data_migration` |
-| `DB_SSL_MODE`, `DB_TIMEZONE` | параметры подключения | `disable`, `Europe/Moscow` |
-| `MINIO_ENDPOINT`, `MINIO_USE_SSL`, `MINIO_BUCKET` | адрес, схема и бакет локального MinIO | `localhost:9000`, `false`, `data-migration-service` |
-| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BASE_URL` | доступ к MinIO и публичный адрес | значения из `.env` |
-
-## HTTP-маршруты
-
-Все ответы API имеют формат JSON. Параметры фильтрации остаются в query-строке, а ID карточки передается в пути.
-
-| Метод | URL | Назначение |
-|---|---|---|
-| GET | `/api/methods` | список опубликованных услуг; фильтр `?min_time={min}&max_time={max}` |
-| GET | `/api/methods/feed` | первая опубликованная услуга |
-| GET | `/api/methods/feed/{id}` | опубликованная услуга по ID |
-| GET | `/api/methods/feed/{id}?next=true` | следующая опубликованная услуга после ID |
-| GET | `/api/methods/draft` | черновик фиксированного пользователя; 404, если его нет |
-| POST | `/api/methods` | создание черновика; `multipart/form-data`: `title`, `image`, `video` |
-| PUT | `/api/methods/publish` | публикация черновика; JSON: `{"description":"Описание","time_in_gb":0.25,"reliability":0.9}` |
-| DELETE | `/api/methods/{id}` | логическое удаление собственной услуги |
-| POST | `/api/methods/{id}/like` | лайк от фиксированного пользователя; JSON: `{"like":1}` ставит, `{"like":0}` отменяет |
-| POST | `/api/users` | регистрация; JSON: `{"email":"user@example.com","password":"secret"}` |
-| POST | `/api/users/login` | заглушка входа, ответ 501 |
-| POST | `/api/users/logout` | заглушка выхода, ответ 501 |
-
-После фильтрации значения `min_time` и `max_time` возвращаются в JSON вместе со списком. Каждый метод содержит `created_by_current_user`: `true`, если его создал текущий пользователь, иначе `false`. Удаленные услуги отсутствуют в списке и недоступны по прямому ID. Создатель в этой лабораторной всегда имеет ID 1; ID, статус и даты изменения методов задаются только сервером. Лишние поля в запросах на изменение отклоняются. Изображение может быть JPEG, PNG или WebP (до 10 МиБ), видео — MP4 или WebM (до 100 МиБ). Оба файла обязательны.
-
-Пример создания черновика после публикации уже существующего черновика пользователя 1:
-
-```bash
-curl -X POST http://localhost:8081/api/methods \
-  -F 'title=Новая услуга' \
-  -F 'image=@photo.png' \
-  -F 'video=@video.mp4'
-```
-
-## Работа с данными
-
-Модели находятся в `internal/ds/models.go`, а стартовая SQL-схема — в `migrations/init.sql`. Схема содержит таблицы `users`, `migration_methods` и `migration_method_likes`. Поля `image_key` и `video_key` хранят имена объектов, а файлы находятся в MinIO. При чтении карточек API формирует `image_url` и `video_url` из публичного адреса бакета и ключей. Все внешние ключи используют `ON DELETE RESTRICT`; каскадного удаления нет. Частичный уникальный индекс гарантирует не более одного черновика у пользователя.
-
-Получение, публикация, лайки и регистрация выполняются через GORM. Логическое удаление выполняется прежним SQL-запросом через `rawDB.ExecContext`; он проверяет создателя и текущий статус. Пароли новых пользователей хранятся в виде bcrypt-хеша. Публиковать можно только черновик, а удаленную услугу нельзя вернуть в черновик.
-
-Начальные данные содержат пять пользователей: у каждого три или более опубликованных услуг и не более одного черновика. У пользователя с фиксированным ID 1 — шесть опубликованных услуг, черновик и удаленная карточка. Для начальных карточек повторно используются существующие файлы в MinIO.
+В базе хранятся ключи медиафайлов, а сами файлы находятся в MinIO. При чтении метода миграции API формирует из ключей `image_url` и `video_url`.
 
 Новые имена файлов генерируются из случайных латинских символов и цифр. Если сохранение в БД не удалось, сервис удаляет загруженные объекты. Для карточек без медиа используются локальные `/static/images/default.svg` и `/static/videos/default.mp4`.
-
-## Тесты
-
-Запуск тестов приложения:
-
-```bash
-go test ./cmd/... ./internal/...
-```
-
-Тесты проверяют загрузку конфигурации, обработку отсутствующего черновика, запасные ссылки на медиа, запрет просмотра удаленной услуги, создание черновика с обязательными файлами и публикацию, постановку и отмену лайка, регистрацию и хеширование пароля, а также передачу ID создателя при удалении.

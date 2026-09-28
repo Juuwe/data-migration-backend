@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    id BIGSERIAL PRIMARY KEY,
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL
 );
@@ -8,7 +8,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
     ON users (email);
 
 CREATE TABLE IF NOT EXISTS migration_methods (
-    id BIGSERIAL PRIMARY KEY,
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    creator_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'draft'
@@ -19,7 +20,6 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     reliability NUMERIC(5, 4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     published_at TIMESTAMPTZ,
-    creator_id BIGINT NOT NULL,
     CONSTRAINT fk_migration_methods_creator
         FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT
 );
@@ -45,9 +45,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_migration_methods_title
     ON migration_methods (title);
 
 CREATE TABLE IF NOT EXISTS migration_method_likes (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    method_id BIGINT NOT NULL,
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id INT NOT NULL,
+    method_id INT NOT NULL,
     CONSTRAINT fk_migration_method_likes_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
     CONSTRAINT fk_migration_method_likes_method
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS migration_method_likes (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_method
     ON migration_method_likes (user_id, method_id);
 
-INSERT INTO users (id, email, password)
+INSERT INTO users (id, email, password) OVERRIDING SYSTEM VALUE
 VALUES
     (1, 'student@example.com', '!'),
     (2, 'analyst@example.com', '!'),

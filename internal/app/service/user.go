@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Juuwe/data-migration-backend/internal/ds"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -38,12 +37,7 @@ func (s *UserService) Register(ctx context.Context, email, password string) (ds.
 		return ds.User{}, ErrInvalidPassword
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return ds.User{}, ErrInvalidPassword
-	}
-
-	user := ds.User{Email: email, Password: string(hash)}
+	user := ds.User{Email: email, Password: password}
 	if err := s.repo.CreateUser(ctx, &user); err != nil {
 		return ds.User{}, err
 	}

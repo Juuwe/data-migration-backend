@@ -55,7 +55,7 @@ func TestUserRoutes(t *testing.T) {
 	for _, path := range []string{"/api/v1/users/login", "/api/v1/users/logout"} {
 		response = httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
-		if response.Code != http.StatusNotImplemented || !json.Valid(response.Body.Bytes()) {
+		if response.Code != http.StatusNotImplemented || response.Body.Len() != 0 {
 			t.Fatalf("POST %s: status = %d, body = %q", path, response.Code, response.Body.String())
 		}
 	}
@@ -84,7 +84,7 @@ func TestRegisterDuplicateEmailReturnsConflict(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"email":"user@example.com","password":"secret"}`))
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusConflict || !json.Valid(response.Body.Bytes()) {
+	if response.Code != http.StatusConflict || response.Body.Len() != 0 {
 		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
 }

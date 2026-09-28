@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Juuwe/data-migration-backend/internal/app/serializer"
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 	"github.com/gin-gonic/gin"
@@ -23,35 +24,32 @@ func (h *UserHandler) Register(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := bindJSON(c, &request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
 	user, err := h.s.Register(c.Request.Context(), request.Email, request.Password)
 	if err != nil {
 		status := http.StatusInternalServerError
-		message := err.Error()
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail), errors.Is(err, service.ErrInvalidPassword):
 			status = http.StatusBadRequest
 		case errors.Is(err, ds.ErrUserAlreadyExists):
 			status = http.StatusConflict
-		default:
-			message = "Не удалось зарегистрировать пользователя"
 		}
-		c.JSON(status, gin.H{"error": message})
+		c.Status(status)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"id": user.ID, "email": user.Email})
+	c.JSON(http.StatusCreated, serializer.NewUser(user))
 }
 
 func (h *UserHandler) Authenticate(c *gin.Context) {
-	err := h.s.Authenticate(c.Request.Context())
-	c.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
+	_ = h.s.Authenticate(c.Request.Context())
+	c.Status(http.StatusNotImplemented)
 }
 
 func (h *UserHandler) Logout(c *gin.Context) {
-	err := h.s.Logout(c.Request.Context())
-	c.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
+	_ = h.s.Logout(c.Request.Context())
+	c.Status(http.StatusNotImplemented)
 }

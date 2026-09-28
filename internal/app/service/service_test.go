@@ -55,6 +55,8 @@ type repositoryStub struct {
 	likeUserID         int64
 	likeValue          int
 	likeCalls          int
+	likesCount         int
+	isLiked            bool
 	createErr          error
 	updateErr          error
 	softDeleteErr      error
@@ -83,7 +85,7 @@ func (r *repositoryStub) FindPublished(context.Context) ([]ds.MigrationMethod, e
 }
 
 func (r *repositoryStub) CountMethodLikesByID(context.Context, int64) (int, error) {
-	return 0, nil
+	return r.likesCount, nil
 }
 
 func (r *repositoryStub) CountLikesByMethodIDs(context.Context, []int64) (map[int64]int, error) {
@@ -91,6 +93,9 @@ func (r *repositoryStub) CountLikesByMethodIDs(context.Context, []int64) (map[in
 }
 
 func (r *repositoryStub) Create(_ context.Context, method *ds.MigrationMethod) error {
+	if r.createErr == nil {
+		method.ID = 7
+	}
 	copy := *method
 	r.created = &copy
 	return r.createErr
@@ -113,6 +118,12 @@ func (r *repositoryStub) SetLike(_ context.Context, methodID, userID int64, like
 	r.likeUserID = userID
 	r.likeValue = like
 	r.likeCalls++
+	if like == 1 && !r.isLiked {
+		r.likesCount++
+	} else if like == 0 && r.isLiked {
+		r.likesCount--
+	}
+	r.isLiked = like == 1
 	return nil
 }
 
@@ -234,7 +245,7 @@ func TestCreateDraftMethod(t *testing.T) {
 	svc := NewMigrationMethodService(repo, NewMediaService(store))
 	image, video := mediaInputs()
 
-	err := svc.CreateDraftMethod(context.Background(), "  Быстрая миграция  ", 3, image, video)
+	view, err := svc.CreateDraftMethod(context.Background(), "  Быстрая миграция  ", 3, image, video)
 
 	if err != nil {
 		t.Fatalf("CreateDraftMethod() error = %v", err)
@@ -255,6 +266,11 @@ func TestCreateDraftMethod(t *testing.T) {
 	if repo.created.Description != nil || repo.created.TimeInGb != nil || repo.created.Reliability != nil || repo.created.PublishedAt != nil {
 		t.Errorf("draft fields must be nil: %+v", *repo.created)
 	}
+	if view.ID != repo.created.ID || view.Title != repo.created.Title ||
+		view.Description != nil || view.TimeInGb != nil || view.Reliability != nil ||
+		view.ImageURL != store.PublicURL(repo.created.ImageKey) || view.VideoURL != store.PublicURL(repo.created.VideoKey) {
+		t.Errorf("created view = %+v", view)
+	}
 }
 
 func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
@@ -262,7 +278,7 @@ func TestCreateDraftMethodRejectsSecondDraft(t *testing.T) {
 	svc := NewMigrationMethodService(repo)
 
 	image, video := mediaInputs()
-	err := svc.CreateDraftMethod(context.Background(), "Еще один", 1, image, video)
+	_, err := svc.CreateDraftMethod(context.Background(), "Еще один", 1, image, video)
 
 	if err == nil {
 		t.Fatal("CreateDraftMethod() error = nil, want duplicate draft error")
@@ -276,7 +292,7 @@ func TestCreateDraftMethodRequiresMedia(t *testing.T) {
 	repo := &repositoryStub{draftErr: ds.ErrMigrationMethodNotFound}
 	svc := NewMigrationMethodService(repo, NewMediaService(&objectStoreStub{}))
 	image, _ := mediaInputs()
-	if err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, MediaInput{}); !errors.Is(err, ErrInvalidMedia) {
+	if _, err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, MediaInput{}); !errors.Is(err, ErrInvalidMedia) {
 		t.Fatalf("error = %v, want ErrInvalidMedia", err)
 	}
 	if repo.created != nil {
@@ -290,7 +306,7 @@ func TestCreateDraftMethodCleansUpAfterDatabaseError(t *testing.T) {
 	store := &objectStoreStub{}
 	svc := NewMigrationMethodService(repo, NewMediaService(store))
 	image, video := mediaInputs()
-	if err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, video); !errors.Is(err, wantErr) {
+	if _, err := svc.CreateDraftMethod(context.Background(), "Услуга", 1, image, video); !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want database error", err)
 	}
 	if len(store.keys) != 2 || len(store.deleted) != 2 || store.deleted[0] != store.keys[0] || store.deleted[1] != store.keys[1] {
@@ -302,7 +318,7 @@ func TestPublishDraft(t *testing.T) {
 	repo := &repositoryStub{draft: ds.MigrationMethod{ID: 2, Status: ds.StatusDraft}}
 	svc := NewMigrationMethodService(repo)
 
-	err := svc.PublishDraft(context.Background(), 3, "  Проверенное описание  ", 0.25, 0.999)
+	view, err := svc.PublishDraft(context.Background(), 3, "  Проверенное описание  ", 0.25, 0.999)
 
 	if err != nil {
 		t.Fatalf("PublishDraft() error = %v", err)
@@ -321,6 +337,12 @@ func TestPublishDraft(t *testing.T) {
 	}
 	if *repo.updated.Description != "Проверенное описание" {
 		t.Errorf("updated description = %q", *repo.updated.Description)
+	}
+	if view.ID != repo.updated.ID || view.Title != repo.updated.Title ||
+		view.Description == nil || *view.Description != "Проверенное описание" ||
+		view.TimeInGb == nil || *view.TimeInGb != 0.25 ||
+		view.Reliability == nil || *view.Reliability != 0.999 {
+		t.Errorf("published view = %+v", view)
 	}
 }
 
@@ -341,7 +363,7 @@ func TestPublishDraftValidatesFields(t *testing.T) {
 			repo := &repositoryStub{draft: ds.MigrationMethod{ID: 2, Status: ds.StatusDraft}}
 			svc := NewMigrationMethodService(repo)
 
-			err := svc.PublishDraft(context.Background(), 1, tt.description, tt.timeInGB, tt.reliability)
+			_, err := svc.PublishDraft(context.Background(), 1, tt.description, tt.timeInGB, tt.reliability)
 
 			if err == nil {
 				t.Fatal("PublishDraft() error = nil, want validation error")
@@ -369,29 +391,41 @@ func TestDeleteMethodUsesRepositorySQLMethod(t *testing.T) {
 }
 
 func TestSetLikeAllowsOnlyPublishedMethodsAndValidValues(t *testing.T) {
-	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}}
+	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}, likesCount: 2}
 	svc := NewMigrationMethodService(repo)
 
-	for _, value := range []int{1, 0} {
-		if err := svc.SetLike(context.Background(), 7, 3, value); err != nil {
-			t.Fatalf("SetLike(%d) error = %v", value, err)
+	for _, test := range []struct {
+		value int
+		liked bool
+		count int
+	}{
+		{1, true, 3},
+		{1, true, 3},
+		{0, false, 2},
+	} {
+		view, err := svc.SetLike(context.Background(), 7, 3, test.value)
+		if err != nil {
+			t.Fatalf("SetLike(%d) error = %v", test.value, err)
 		}
-		if repo.likeMethodID != 7 || repo.likeUserID != 3 || repo.likeValue != value {
-			t.Fatalf("SetLike(%d) delegated method=%d user=%d value=%d", value, repo.likeMethodID, repo.likeUserID, repo.likeValue)
+		if view.ID != 7 || view.IsLiked != test.liked || view.LikesCount != test.count {
+			t.Fatalf("SetLike(%d) view = %+v", test.value, view)
+		}
+		if repo.likeMethodID != 7 || repo.likeUserID != 3 || repo.likeValue != test.value {
+			t.Fatalf("SetLike(%d) delegated method=%d user=%d value=%d", test.value, repo.likeMethodID, repo.likeUserID, repo.likeValue)
 		}
 	}
-	if repo.likeCalls != 2 {
-		t.Fatalf("SetLike() calls = %d, want 2", repo.likeCalls)
+	if repo.likeCalls != 3 {
+		t.Fatalf("SetLike() calls = %d, want 3", repo.likeCalls)
 	}
 
-	if err := svc.SetLike(context.Background(), 7, 3, 2); !errors.Is(err, ErrInvalidLike) {
+	if _, err := svc.SetLike(context.Background(), 7, 3, 2); !errors.Is(err, ErrInvalidLike) {
 		t.Fatalf("SetLike(2) error = %v, want invalid like", err)
 	}
 	repo.method.Status = ds.StatusDeleted
-	if err := svc.SetLike(context.Background(), 7, 3, 1); !errors.Is(err, ds.ErrMigrationMethodNotFound) {
+	if _, err := svc.SetLike(context.Background(), 7, 3, 1); !errors.Is(err, ds.ErrMigrationMethodNotFound) {
 		t.Fatalf("SetLike(deleted) error = %v, want not found", err)
 	}
-	if repo.likeCalls != 2 {
-		t.Fatalf("SetLike() calls after invalid requests = %d, want 2", repo.likeCalls)
+	if repo.likeCalls != 3 {
+		t.Fatalf("SetLike() calls after invalid requests = %d, want 3", repo.likeCalls)
 	}
 }
