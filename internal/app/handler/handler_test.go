@@ -321,8 +321,8 @@ func TestMethodMutationsRejectSystemFields(t *testing.T) {
 func TestMethodRoutesReadIDsFromQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{published: []ds.MigrationMethod{
-		{ID: 3, Title: "Первая", Status: ds.StatusPublished},
-		{ID: 7, Title: "Вторая", Status: ds.StatusPublished},
+		{ID: 3, CreatorID: currentCreatorID(), Title: "Первая", Status: ds.StatusPublished},
+		{ID: 7, CreatorID: 2, Title: "Вторая", Status: ds.StatusPublished},
 	}, likedMethodIDs: map[int64]bool{7: true}}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
 	router := gin.New()
@@ -358,6 +358,10 @@ func TestMethodRoutesReadIDsFromQuery(t *testing.T) {
 		}
 		if method["id"] != test.wantID {
 			t.Fatalf("GET %s: id = %v, want %v", test.path, method["id"], test.wantID)
+		}
+		wantOwner := test.wantID == 3
+		if method["created_by_current_user"] != wantOwner {
+			t.Fatalf("GET %s: created_by_current_user = %v, want %v", test.path, method["created_by_current_user"], wantOwner)
 		}
 		if test.field == "method" && method["is_liked"] != test.wantLiked {
 			t.Fatalf("GET %s: is_liked = %v, want %v", test.path, method["is_liked"], test.wantLiked)

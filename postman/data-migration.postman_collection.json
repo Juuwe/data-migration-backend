@@ -1,113 +1,397 @@
 {
   "info": {
-    "name": "Data Migration API",
+    "name": "ЛР-3 — услуги и пользователи",
+    "description": "Ровно 10 API-маршрутов и 10 сохранённых запросов. При запуске Collection Runner начальный черновик, если есть, сначала публикуется; затем создаётся, проверяется и публикуется новая услуга. Запрос ленты выполняется дважды: без ID и с id/next=true. POST создания использует локальные файлы репозитория; в Postman при необходимости укажите их вручную. Текущий пользователь до ЛР-4 имеет ID 1.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8081" },
-    { "key": "methodId", "value": "" },
-    { "key": "mintime", "value": 0.1 },
-    { "key": "maxTime", "value": 0.8 }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "minTime",
+      "value": "0.1"
+    },
+    {
+      "key": "maxTime",
+      "value": "0.8"
+    },
+    {
+      "key": "methodId",
+      "value": ""
+    },
+    {
+      "key": "feedId",
+      "value": ""
+    },
+    {
+      "key": "draftTitle",
+      "value": ""
+    },
+    {
+      "key": "newEmail",
+      "value": ""
+    },
+    {
+      "key": "feedQuery",
+      "value": ""
+    },
+    {
+      "key": "feedStep",
+      "value": ""
+    },
+    {
+      "key": "workflowPhase",
+      "value": ""
+    }
   ],
   "item": [
     {
-      "name": "Список методов",
+      "name": "1. Список услуг с фильтром",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/api/methods?min_time=0.1&max_time=0.8"
-      }
+        "url": "{{baseUrl}}/api/methods?min_time={{minTime}}&max_time={{maxTime}}",
+        "description": "Только опубликованные услуги. created_by_current_user: false или true."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 и опубликованный список', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const data = pm.response.json();",
+              "  pm.expect(data.methods).to.be.an('array');",
+              "  data.methods.forEach(function (method) {",
+              "    pm.expect(method.time_in_gb).to.be.within(Number(pm.collectionVariables.get('minTime')), Number(pm.collectionVariables.get('maxTime')));",
+              "    pm.expect(method.created_by_current_user).to.be.a('boolean');",
+              "  });",
+              "  pm.collectionVariables.set('workflowPhase', 'initial');",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Получение ленты без ID",
+      "name": "2. Получить поля своего черновика",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/api/methods/feed"
-      }
+        "url": "{{baseUrl}}/api/methods/draft",
+        "description": "Проверяет уже существующий черновик пользователя ID 1, в том числе «Онлайн-миграцию» из init.sql. После создания нового черновика тот же запрос выполняется повторно."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('свой черновик или 404, если его нет', function () {",
+              "  const phase = pm.collectionVariables.get('workflowPhase');",
+              "  pm.expect([200, 404]).to.include(pm.response.code);",
+              "  if (pm.response.code === 404) {",
+              "    pm.expect(phase).to.equal('initial');",
+              "    pm.execution.setNextRequest('4. Создать услугу с изображением и видео');",
+              "    return;",
+              "  }",
+              "  const draft = pm.response.json().draft;",
+              "  pm.expect(draft.description).to.equal(null);",
+              "  pm.expect(draft.created_by_current_user).to.equal(true);",
+              "  if (phase === 'new') {",
+              "    pm.expect(String(draft.id)).to.equal(pm.collectionVariables.get('methodId'));",
+              "    pm.execution.setNextRequest('3. Опубликовать черновик');",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Карточка по ID",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/methods/feed?id={{methodId}}"
-      }
-    },
-    {
-      "name": "Следующая карточка",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/methods/feed?id={{methodId}}&next=true"
-      }
-    },
-    {
-      "name": "Получить черновик",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/methods/draft"
-      }
-    },
-    {
-      "name": "Опубликовать черновик",
+      "name": "3. Опубликовать черновик",
       "request": {
         "method": "PUT",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"description\": \"Описание метода миграции\",\n  \"time_in_gb\": 0.25,\n  \"reliability\": 0.9\n}"
+          "raw": "{\n  \"description\": \"Проверка загрузки файлов и публикации через Postman\",\n  \"time_in_gb\": 0.25,\n  \"reliability\": 0.9\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         },
-        "url": "{{baseUrl}}/api/methods/publish"
-      }
+        "url": "{{baseUrl}}/api/methods/publish",
+        "description": "Сначала публикует начальный черновик, если он есть; после создания новой услуги тот же PUT публикует новый черновик. При ручной проверке выполните его после каждого GET черновика."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 и опубликованная услуга', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const method = pm.response.json().method;",
+              "  pm.expect(method.description).to.be.a('string').and.not.empty;",
+              "  pm.expect(method.created_by_current_user).to.equal(true);",
+              "  if (pm.collectionVariables.get('workflowPhase') === 'new') {",
+              "    pm.expect(String(method.id)).to.equal(pm.collectionVariables.get('methodId'));",
+              "    pm.collectionVariables.set('workflowPhase', 'done');",
+              "    pm.collectionVariables.unset('feedStep');",
+              "    pm.collectionVariables.unset('feedQuery');",
+              "    pm.execution.setNextRequest('5. Лента: без ID и следующий элемент');",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Создать черновик",
+      "name": "4. Создать услугу с изображением и видео",
       "request": {
         "method": "POST",
         "body": {
           "mode": "formdata",
           "formdata": [
-            { "key": "title", "value": "Новый метод миграции", "type": "text" },
-            { "key": "image", "type": "file", "src": "" },
-            { "key": "video", "type": "file", "src": "" }
+            {
+              "key": "title",
+              "value": "{{draftTitle}}",
+              "type": "text"
+            },
+            {
+              "key": "image",
+              "type": "file",
+              "src": "postman/fixtures/sample.png"
+            },
+            {
+              "key": "video",
+              "type": "file",
+              "src": "static/videos/default.mp4"
+            }
           ]
         },
-        "url": "{{baseUrl}}/api/methods"
-      }
+        "url": "{{baseUrl}}/api/methods",
+        "description": "multipart/form-data. Выберите реальные файлы postman/fixtures/sample.png и static/videos/default.mp4. Перед созданием старый черновик пользователя ID 1 нужно опубликовать или удалить; Collection Runner делает это через запросы 2 и 3."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('draftTitle', 'Услуга Postman ' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201, создан черновик с медиа', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const draft = pm.response.json().draft;",
+              "  pm.expect(draft.id).to.be.a('number');",
+              "  pm.expect(draft.title).to.equal(pm.collectionVariables.get('draftTitle'));",
+              "  pm.expect(draft.image_url).to.include('/images/');",
+              "  pm.expect(draft.video_url).to.include('/videos/');",
+              "  pm.expect(draft.created_by_current_user).to.equal(true);",
+              "  pm.collectionVariables.set('methodId', String(draft.id));",
+              "  pm.collectionVariables.set('workflowPhase', 'new');",
+              "  pm.execution.setNextRequest('2. Получить поля своего черновика');",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Поставить лайк",
+      "name": "5. Лента: без ID и следующий элемент",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/methods/feed{{feedQuery}}",
+        "description": "Один маршрут и один запрос коллекции. Сначала без ID, затем тот же запрос с ?id=<полученный ID>&next=true. Collection Runner повторяет его автоматически; при ручной отправке нажмите Send дважды."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const next = pm.collectionVariables.get('feedStep') === 'next';",
+              "const feedId = pm.collectionVariables.get('feedId');",
+              "pm.collectionVariables.set('feedQuery', next && feedId ? '?id=' + encodeURIComponent(feedId) + '&next=true' : '');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 и признак лайка false/true', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const method = pm.response.json().method;",
+              "  pm.expect(method.id).to.be.a('number');",
+              "  pm.expect(method.is_liked).to.be.a('boolean');",
+              "  pm.expect(method.created_by_current_user).to.be.a('boolean');",
+              "  if (pm.collectionVariables.get('feedStep') === 'next') {",
+              "    pm.collectionVariables.unset('feedStep');",
+              "    pm.collectionVariables.unset('feedQuery');",
+              "  } else {",
+              "    pm.collectionVariables.set('feedId', String(method.id));",
+              "    pm.collectionVariables.set('feedStep', 'next');",
+              "    pm.execution.setNextRequest(pm.info.requestId);",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Поставить лайк",
       "request": {
         "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"like\": 1\n}"
+          "raw": "{\n  \"like\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         },
-        "url": "{{baseUrl}}/api/methods/{{methodId}}/like"
-      }
+        "url": "{{baseUrl}}/api/methods/{{methodId}}/like",
+        "description": "Текущий пользователь ставит лайк опубликованной услуге. Для отмены замените like на 0."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 и is_liked = true', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const method = pm.response.json().method;",
+              "  pm.expect(String(method.id)).to.equal(pm.collectionVariables.get('methodId'));",
+              "  pm.expect(method.is_liked).to.equal(true);",
+              "  pm.expect(method.likes_count).to.be.at.least(1);",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Удалить метод",
+      "name": "7. Мягко удалить свою услугу",
       "request": {
         "method": "DELETE",
-        "url": "{{baseUrl}}/api/methods/{{methodId}}"
-      }
+        "url": "{{baseUrl}}/api/methods/{{methodId}}",
+        "description": "Удаляет только собственную услугу сменой статуса."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('204 без тела', function () {",
+              "  pm.response.to.have.status(204);",
+              "  pm.expect(pm.response.text()).to.equal('');",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "Зарегистрировать пользователя",
+      "name": "8. Зарегистрировать нового пользователя",
       "request": {
         "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"email\": \"new.user@example.com\",\n  \"password\": \"password123\"\n}"
+          "raw": "{\n  \"email\": \"{{newEmail}}\",\n  \"password\": \"password123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         },
-        "url": "{{baseUrl}}/api/users"
-      }
+        "url": "{{baseUrl}}/api/users",
+        "description": "Создаёт новый email на каждом запуске. Регистрация пока не меняет текущего пользователя ID 1."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('newEmail', 'postman.' + Date.now() + '@example.com');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201, пользователь создан', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const user = pm.response.json();",
+              "  pm.expect(user.id).to.be.a('number');",
+              "  pm.expect(user.email).to.equal(pm.collectionVariables.get('newEmail'));",
+              "  pm.expect(user).not.to.have.property('password');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Аутентификация (заглушка)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/users/login",
+        "description": "Заглушка для ЛР-4: ожидается 501."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('501: заглушка', function () {",
+              "  pm.response.to.have.status(501);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Деавторизация (заглушка)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/users/logout",
+        "description": "Заглушка для ЛР-4: ожидается 501."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('501: заглушка', function () {",
+              "  pm.response.to.have.status(501);",
+              "});"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
