@@ -34,6 +34,7 @@ type MigrationMethodRepository interface {
 
 	CountMethodLikesByID(ctx context.Context, methodID int64) (int, error)
 	CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error)
+	IsLiked(ctx context.Context, methodID, userID int64) (bool, error)
 
 	Create(ctx context.Context, method *ds.MigrationMethod) error
 	Update(ctx context.Context, method *ds.MigrationMethod) error
@@ -150,6 +151,10 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID 
 	}
 
 	return s.serializeSingleMethod(ctx, &m, currentUserID)
+}
+
+func (s *MigrationMethodService) IsLiked(ctx context.Context, methodID, userID int64) (bool, error) {
+	return s.repo.IsLiked(ctx, methodID, userID)
 }
 
 func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64, currentUserID int64) ([]serializer.MigrationMethod, error) {

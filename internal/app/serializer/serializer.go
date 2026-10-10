@@ -34,6 +34,11 @@ type MigrationMethodLike struct {
 	LikesCount int   `json:"likes_count"`
 }
 
+type FeedMethod struct {
+	MigrationMethod
+	IsLiked bool `json:"is_liked"`
+}
+
 func NewLike(methodID int64, isLiked bool, likesCount int) MigrationMethodLike {
 	return MigrationMethodLike{ID: methodID, IsLiked: isLiked, LikesCount: likesCount}
 }
@@ -45,6 +50,10 @@ type GridResponse struct {
 }
 
 type FeedResponse struct {
+	Method FeedMethod `json:"method"`
+}
+
+type MethodResponse struct {
 	Method MigrationMethod `json:"method"`
 }
 

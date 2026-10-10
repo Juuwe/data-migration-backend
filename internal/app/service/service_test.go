@@ -92,6 +92,10 @@ func (r *repositoryStub) CountLikesByMethodIDs(context.Context, []int64) (map[in
 	return map[int64]int{}, nil
 }
 
+func (r *repositoryStub) IsLiked(context.Context, int64, int64) (bool, error) {
+	return r.isLiked, nil
+}
+
 func (r *repositoryStub) Create(_ context.Context, method *ds.MigrationMethod) error {
 	if r.createErr == nil {
 		method.ID = 7

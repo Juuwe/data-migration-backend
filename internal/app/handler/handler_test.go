@@ -30,10 +30,10 @@ func TestGetFeedItemNotFoundReturnsEmpty404(t *testing.T) {
 
 	svc := service.NewMigrationMethodService(feedRepositoryStub{})
 	router := gin.New()
-	router.GET("/api/v1/methods/:id", NewMigrationMethodHandler(svc).GetFeedItem)
+	router.GET("/api/methods/feed", NewMigrationMethodHandler(svc).GetFeedItem)
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/methods/999", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/methods/feed?id=999", nil)
 	router.ServeHTTP(response, request)
 
 	if response.Code != http.StatusNotFound {
@@ -46,18 +46,20 @@ func TestGetFeedItemNotFoundReturnsEmpty404(t *testing.T) {
 
 type jsonRepositoryStub struct {
 	service.MigrationMethodRepository
-	draft      ds.MigrationMethod
-	published  []ds.MigrationMethod
-	created    *ds.MigrationMethod
-	updated    *ds.MigrationMethod
-	deletedID  int64
-	nextID     int64
-	likeID     int64
-	likeUser   int64
-	likeValue  int
-	likeCalls  int
-	likesCount int
-	isLiked    bool
+	draft             ds.MigrationMethod
+	published         []ds.MigrationMethod
+	likedMethodIDs    map[int64]bool
+	checkedLikeUserID int64
+	created           *ds.MigrationMethod
+	updated           *ds.MigrationMethod
+	deletedID         int64
+	nextID            int64
+	likeID            int64
+	likeUser          int64
+	likeValue         int
+	likeCalls         int
+	likesCount        int
+	isLiked           bool
 }
 
 type objectStoreStub struct{}
@@ -123,6 +125,11 @@ func (r *jsonRepositoryStub) FindNextPublishedAfterID(_ context.Context, id int6
 
 func (r *jsonRepositoryStub) CountMethodLikesByID(context.Context, int64) (int, error) {
 	return r.likesCount, nil
+}
+
+func (r *jsonRepositoryStub) IsLiked(_ context.Context, methodID, userID int64) (bool, error) {
+	r.checkedLikeUserID = userID
+	return r.likedMethodIDs[methodID], nil
 }
 
 func (r *jsonRepositoryStub) CountLikesByMethodIDs(context.Context, []int64) (map[int64]int, error) {
@@ -311,27 +318,27 @@ func TestMethodMutationsRejectSystemFields(t *testing.T) {
 	}
 }
 
-func TestMethodRoutesReadIDsFromPath(t *testing.T) {
+func TestMethodRoutesReadIDsFromQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{published: []ds.MigrationMethod{
 		{ID: 3, Title: "Первая", Status: ds.StatusPublished},
 		{ID: 7, Title: "Вторая", Status: ds.StatusPublished},
-	}}
+	}, likedMethodIDs: map[int64]bool{7: true}}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
 	router := gin.New()
 	router.GET("/api/methods", handler.GetGrid)
 	router.GET("/api/methods/feed", handler.GetFeedItem)
-	router.GET("/api/methods/feed/:id", handler.GetFeedItem)
 
 	tests := []struct {
-		path   string
-		field  string
-		wantID float64
+		path      string
+		field     string
+		wantID    float64
+		wantLiked bool
 	}{
-		{"/api/methods", "methods", 3},
-		{"/api/methods/feed", "method", 3},
-		{"/api/methods/feed/7", "method", 7},
-		{"/api/methods/feed/3?next=true", "method", 7},
+		{"/api/methods", "methods", 3, false},
+		{"/api/methods/feed", "method", 3, false},
+		{"/api/methods/feed?id=7", "method", 7, true},
+		{"/api/methods/feed?id=3&next=true", "method", 7, true},
 	}
 	for _, test := range tests {
 		response := httptest.NewRecorder()
@@ -352,6 +359,14 @@ func TestMethodRoutesReadIDsFromPath(t *testing.T) {
 		if method["id"] != test.wantID {
 			t.Fatalf("GET %s: id = %v, want %v", test.path, method["id"], test.wantID)
 		}
+		if test.field == "method" && method["is_liked"] != test.wantLiked {
+			t.Fatalf("GET %s: is_liked = %v, want %v", test.path, method["is_liked"], test.wantLiked)
+		}
+		if test.field == "methods" {
+			if _, exists := method["is_liked"]; exists {
+				t.Fatalf("GET %s: is_liked should only be in the feed", test.path)
+			}
+		}
 		for _, field := range []string{"status", "creator_id", "created_at", "published_at"} {
 			if _, exists := method[field]; exists {
 				t.Fatalf("GET %s: %s was exposed in JSON", test.path, field)
@@ -361,9 +376,31 @@ func TestMethodRoutesReadIDsFromPath(t *testing.T) {
 	if repo.nextID != 3 {
 		t.Fatalf("next lookup ID = %d, want 3", repo.nextID)
 	}
+	if repo.checkedLikeUserID != currentCreatorID() {
+		t.Fatalf("like lookup user ID = %d, want %d", repo.checkedLikeUserID, currentCreatorID())
+	}
 }
 
-func TestDraftAndPublishedMethodsHaveTheSameJSONFields(t *testing.T) {
+func TestGetFeedItemRejectsInvalidQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/methods/feed", NewMigrationMethodHandler(service.NewMigrationMethodService(feedRepositoryStub{})).GetFeedItem)
+
+	for _, path := range []string{
+		"/api/methods/feed?id=",
+		"/api/methods/feed?id=abc",
+		"/api/methods/feed?id=0",
+		"/api/methods/feed?next=true",
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("GET %s: status = %d, want 400", path, response.Code)
+		}
+	}
+}
+
+func TestDraftAndPublishedMethodsShareCommonJSONFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	description := "Готовое описание"
 	timeInGb := 0.25
@@ -404,7 +441,14 @@ func TestDraftAndPublishedMethodsHaveTheSameJSONFields(t *testing.T) {
 			t.Fatalf("GET %s: invalid JSON: %v", test.path, err)
 		}
 		method := body[test.key]
-		if len(method) != len(fields) {
+		wantFieldCount := len(fields)
+		if test.key == "method" {
+			wantFieldCount++
+			if method["is_liked"] != false {
+				t.Fatalf("GET %s: is_liked = %v, want false", test.path, method["is_liked"])
+			}
+		}
+		if len(method) != wantFieldCount {
 			t.Fatalf("GET %s: fields = %v", test.path, method)
 		}
 		for _, field := range fields {

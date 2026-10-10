@@ -53,7 +53,7 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 }
 
 func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
-	idStr := c.Param("id")
+	idStr, hasID := c.GetQuery("id")
 	ctx := c.Request.Context()
 	currentUserID := currentCreatorID()
 
@@ -62,7 +62,11 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		err    error
 	)
 
-	if idStr == "" {
+	if !hasID {
+		if c.Query("next") == "true" {
+			c.Status(http.StatusBadRequest)
+			return
+		}
 		var published []serializer.MigrationMethod
 		published, err = h.s.GetPublished(ctx, currentUserID)
 		if err != nil {
@@ -98,7 +102,12 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, serializer.FeedResponse{Method: method})
+	isLiked, err := h.s.IsLiked(ctx, method.ID, currentUserID)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	c.JSON(http.StatusOK, serializer.FeedResponse{Method: serializer.FeedMethod{MigrationMethod: method, IsLiked: isLiked}})
 }
 
 func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
@@ -204,7 +213,7 @@ func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, serializer.FeedResponse{Method: method})
+	c.JSON(http.StatusOK, serializer.MethodResponse{Method: method})
 }
 
 func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {

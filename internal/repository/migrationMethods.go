@@ -142,6 +142,18 @@ func (r *PosrtgresMigrationMethodsRepo) CountMethodLikesByID(ctx context.Context
 	return int(count), nil
 }
 
+func (r *PosrtgresMigrationMethodsRepo) IsLiked(ctx context.Context, methodID, userID int64) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&ds.MigrationMethodLike{}).
+		Where("method_id = ? AND user_id = ?", methodID, userID).
+		Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("check migration method like: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (r *PosrtgresMigrationMethodsRepo) CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error) {
 	if len(methodIDs) == 0 {
 		return make(map[int64]int), nil

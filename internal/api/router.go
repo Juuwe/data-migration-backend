@@ -23,7 +23,6 @@ func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService
 
 	r.GET("/api/methods", migrationMethodsHandler.GetGrid)
 	r.GET("/api/methods/feed", migrationMethodsHandler.GetFeedItem)
-	r.GET("/api/methods/feed/:id", migrationMethodsHandler.GetFeedItem)
 	r.GET("/api/methods/draft", migrationMethodsHandler.ShowAddMethodPage)
 	r.POST("/api/methods", migrationMethodsHandler.CreateDraftMethod)
 	r.PUT("/api/methods/publish", migrationMethodsHandler.PublishDraftMethod)

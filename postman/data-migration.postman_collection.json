@@ -28,14 +28,14 @@
       "name": "Карточка по ID",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/api/methods/feed/{{methodId}}"
+        "url": "{{baseUrl}}/api/methods/feed?id={{methodId}}"
       }
     },
     {
       "name": "Следующая карточка",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/api/methods/feed/{{methodId}}?next=true"
+        "url": "{{baseUrl}}/api/methods/feed?id={{methodId}}&next=true"
       }
     },
     {

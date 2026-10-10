@@ -28,7 +28,6 @@ func TestRouterContainsAssignmentRoutes(t *testing.T) {
 	want := map[string]struct{}{
 		"GET /api/methods":           {},
 		"GET /api/methods/feed":      {},
-		"GET /api/methods/feed/:id":  {},
 		"GET /api/methods/draft":     {},
 		"POST /api/methods":          {},
 		"PUT /api/methods/publish":   {},
@@ -39,14 +38,26 @@ func TestRouterContainsAssignmentRoutes(t *testing.T) {
 		"POST /api/users/logout":     {},
 	}
 
+	apiRoutes, getRoutes := 0, 0
 	for _, route := range router.Routes() {
-		if route.Path != "/static/*filepath" && (len(route.Path) < len("/api/") || route.Path[:len("/api/")] != "/api/") {
-			t.Fatalf("route %s %s has an unexpected path", route.Method, route.Path)
+		if route.Path == "/static/*filepath" {
+			continue
 		}
-		delete(want, route.Method+" "+route.Path)
+		key := route.Method + " " + route.Path
+		if _, exists := want[key]; !exists {
+			t.Fatalf("unexpected API route: %s", key)
+		}
+		apiRoutes++
+		if route.Method == http.MethodGet {
+			getRoutes++
+		}
+		delete(want, key)
 	}
 	if len(want) != 0 {
 		t.Fatalf("router is missing routes: %v", want)
+	}
+	if apiRoutes != 10 || getRoutes != 3 {
+		t.Fatalf("API routes: %d total, %d GET; want 10 total, 3 GET", apiRoutes, getRoutes)
 	}
 
 	response := httptest.NewRecorder()

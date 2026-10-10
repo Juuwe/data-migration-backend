@@ -7,9 +7,7 @@ GET-запросы, создание и публикация черновика,
 | Метод | URL | Ответ | Описание | Функция |
 |---|---|---|---|---|
 | GET | `/api/methods` | 200 — `methods`, `min_time`, `max_time` | Список опубликованных методов миграции; фильтр `?min_time={min}&max_time={max}`. | `GetGrid` |
-| GET | `/api/methods/feed` | 200 — `method` | Первый опубликованный метод миграции. | `GetFeedItem` |
-| GET | `/api/methods/feed/{id}` | 200 — `method` | Опубликованный метод миграции по ID. | `GetFeedItem` |
-| GET | `/api/methods/feed/{id}?next=true` | 200 — `method` | Следующий метод миграции по ID; после последнего возвращается первый. | `GetFeedItem` |
+| GET | `/api/methods/feed` | 200 — `method` с `is_liked` (`bool`) | Без параметров — первый опубликованный метод; `?id={id}` — опубликованный метод по ID; `?id={id}&next=true` — следующий после него (с переходом к первому после последнего). `is_liked` показывает лайк текущего пользователя. | `GetFeedItem` |
 | GET | `/api/methods/draft` | 200 — `draft`; 404, если черновика нет | Черновик текущего пользователя. | `ShowAddMethodPage` |
 | POST | `/api/methods` | 201 — `draft`, заголовок `Location` | Создает черновик из `multipart/form-data`: `title`, `image`, `video`. | `CreateDraftMethod` |
 | PUT | `/api/methods/publish` | 200 — `method` | Публикует черновик; принимает JSON с `description`, `time_in_gb`, `reliability`. | `PublishDraftMethod` |
