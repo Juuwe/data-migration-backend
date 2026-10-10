@@ -1,0 +1,556 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API методов миграции данных. Пока используется фиксированный пользователь с ID 1; вход и выход не реализованы. Ошибки возвращаются без тела ответа.",
+        "title": "Data Migration API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/api/methods": {
+            "get": {
+                "description": "Если диапазон времени не задан или некорректен, фильтр не применяется.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Список опубликованных методов",
+                "parameters": [
+                    {
+                        "type": "number",
+                        "description": "Минимальное время на 1 Гб",
+                        "name": "min_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "number",
+                        "description": "Максимальное время на 1 Гб",
+                        "name": "max_time",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.GridResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Создать черновик",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название метода",
+                        "name": "title",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Изображение",
+                        "name": "image",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Видео",
+                        "name": "video",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.DraftResponse"
+                        },
+                        "headers": {
+                            "Location": {
+                                "type": "string",
+                                "description": "Путь к черновику"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный запрос"
+                    },
+                    "413": {
+                        "description": "Файлы слишком большие"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/methods/draft": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Черновик текущего пользователя",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.DraftResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Черновик не найден"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/methods/feed": {
+            "get": {
+                "description": "Без id возвращает первый опубликованный метод; next=true с id — следующий с переходом к первому.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Метод из ленты",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ID опубликованного метода",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Получить следующий метод; требует id",
+                        "name": "next",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.FeedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный запрос"
+                    },
+                    "404": {
+                        "description": "Метод не найден"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/methods/publish": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Опубликовать черновик",
+                "parameters": [
+                    {
+                        "description": "Описание, время на 1 Гб и надежность",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.PublishDraftRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.MethodResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный запрос"
+                    },
+                    "404": {
+                        "description": "Черновик не найден"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/methods/{id}": {
+            "delete": {
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Удалить свой метод",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ID метода",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Метод удален"
+                    },
+                    "400": {
+                        "description": "Некорректный ID"
+                    },
+                    "404": {
+                        "description": "Метод не найден"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/methods/{id}/like": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "methods"
+                ],
+                "summary": "Поставить или снять лайк",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ID метода",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "1 — поставить лайк, 0 — снять",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.LikeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.LikeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный запрос"
+                    },
+                    "404": {
+                        "description": "Метод не найден"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/users": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Зарегистрировать пользователя",
+                "parameters": [
+                    {
+                        "description": "Email и пароль",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.RegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/serializer.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Некорректный запрос"
+                    },
+                    "409": {
+                        "description": "Email уже занят"
+                    },
+                    "500": {
+                        "description": "Внутренняя ошибка"
+                    }
+                }
+            }
+        },
+        "/api/users/login": {
+            "post": {
+                "tags": [
+                    "users"
+                ],
+                "summary": "Вход пользователя (пока не реализован)",
+                "responses": {
+                    "501": {
+                        "description": "Не реализовано"
+                    }
+                }
+            }
+        },
+        "/api/users/logout": {
+            "post": {
+                "tags": [
+                    "users"
+                ],
+                "summary": "Выход пользователя (пока не реализован)",
+                "responses": {
+                    "501": {
+                        "description": "Не реализовано"
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "handler.LikeRequest": {
+            "type": "object",
+            "required": [
+                "like"
+            ],
+            "properties": {
+                "like": {
+                    "type": "integer",
+                    "enum": [
+                        0,
+                        1
+                    ]
+                }
+            }
+        },
+        "handler.PublishDraftRequest": {
+            "type": "object",
+            "required": [
+                "description",
+                "time_in_gb"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "reliability": {
+                    "type": "number"
+                },
+                "time_in_gb": {
+                    "type": "number"
+                }
+            }
+        },
+        "handler.RegisterRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "serializer.DraftResponse": {
+            "type": "object",
+            "properties": {
+                "draft": {
+                    "$ref": "#/definitions/serializer.MigrationMethod"
+                }
+            }
+        },
+        "serializer.FeedMethod": {
+            "type": "object",
+            "properties": {
+                "created_by_current_user": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "is_liked": {
+                    "type": "boolean"
+                },
+                "likes_count": {
+                    "type": "integer"
+                },
+                "reliability": {
+                    "type": "number"
+                },
+                "time_in_gb": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "video_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "serializer.FeedResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "$ref": "#/definitions/serializer.FeedMethod"
+                }
+            }
+        },
+        "serializer.GridResponse": {
+            "type": "object",
+            "properties": {
+                "max_time": {
+                    "type": "number"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/serializer.MigrationMethod"
+                    }
+                },
+                "min_time": {
+                    "type": "number"
+                }
+            }
+        },
+        "serializer.LikeResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "$ref": "#/definitions/serializer.MigrationMethodLike"
+                }
+            }
+        },
+        "serializer.MethodResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "$ref": "#/definitions/serializer.MigrationMethod"
+                }
+            }
+        },
+        "serializer.MigrationMethod": {
+            "type": "object",
+            "properties": {
+                "created_by_current_user": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "likes_count": {
+                    "type": "integer"
+                },
+                "reliability": {
+                    "type": "number"
+                },
+                "time_in_gb": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "video_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "serializer.MigrationMethodLike": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "is_liked": {
+                    "type": "boolean"
+                },
+                "likes_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "serializer.User": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                }
+            }
+        }
+    }
+}

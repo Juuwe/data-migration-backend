@@ -1,3 +1,7 @@
+// @title Data Migration API
+// @version 1.0
+// @description API методов миграции данных. Пока используется фиксированный пользователь с ID 1; вход и выход не реализованы. Ошибки возвращаются без тела ответа.
+// @BasePath /
 package main
 
 import (

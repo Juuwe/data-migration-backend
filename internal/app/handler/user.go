@@ -14,15 +14,28 @@ type UserHandler struct {
 	s *service.UserService
 }
 
+type RegisterRequest struct {
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
 func NewUserHandler(s *service.UserService) *UserHandler {
 	return &UserHandler{s: s}
 }
 
+// Register godoc
+// @Summary Зарегистрировать пользователя
+// @Tags users
+// @Accept json
+// @Produce json
+// @Param request body RegisterRequest true "Email и пароль"
+// @Success 201 {object} serializer.User
+// @Failure 400 "Некорректный запрос"
+// @Failure 409 "Email уже занят"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/users [post]
 func (h *UserHandler) Register(c *gin.Context) {
-	var request struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var request RegisterRequest
 	if err := bindJSON(c, &request); err != nil {
 		c.Status(http.StatusBadRequest)
 		return
@@ -44,11 +57,21 @@ func (h *UserHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, serializer.NewUser(user))
 }
 
+// Authenticate godoc
+// @Summary Вход пользователя (пока не реализован)
+// @Tags users
+// @Failure 501 "Не реализовано"
+// @Router /api/users/login [post]
 func (h *UserHandler) Authenticate(c *gin.Context) {
 	_ = h.s.Authenticate(c.Request.Context())
 	c.Status(http.StatusNotImplemented)
 }
 
+// Logout godoc
+// @Summary Выход пользователя (пока не реализован)
+// @Tags users
+// @Failure 501 "Не реализовано"
+// @Router /api/users/logout [post]
 func (h *UserHandler) Logout(c *gin.Context) {
 	_ = h.s.Logout(c.Request.Context())
 	c.Status(http.StatusNotImplemented)

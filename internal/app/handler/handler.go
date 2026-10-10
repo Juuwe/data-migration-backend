@@ -15,10 +15,30 @@ type MigrationMethodHandler struct {
 	s *service.MigrationMethodService
 }
 
+type PublishDraftRequest struct {
+	Description string  `json:"description" binding:"required"`
+	TimeInGb    float64 `json:"time_in_gb" binding:"required"`
+	Reliability float64 `json:"reliability"`
+}
+
+type LikeRequest struct {
+	Like *int `json:"like" enums:"0,1" binding:"required"`
+}
+
 func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMethodHandler {
 	return &MigrationMethodHandler{s: s}
 }
 
+// GetGrid godoc
+// @Summary Список опубликованных методов
+// @Description Если диапазон времени не задан или некорректен, фильтр не применяется.
+// @Tags methods
+// @Produce json
+// @Param min_time query number false "Минимальное время на 1 Гб"
+// @Param max_time query number false "Максимальное время на 1 Гб"
+// @Success 200 {object} serializer.GridResponse
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods [get]
 func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 	ctx := c.Request.Context()
 	currentUserID := currentCreatorID()
@@ -52,6 +72,18 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+// GetFeedItem godoc
+// @Summary Метод из ленты
+// @Description Без id возвращает первый опубликованный метод; next=true с id — следующий с переходом к первому.
+// @Tags methods
+// @Produce json
+// @Param id query integer false "ID опубликованного метода"
+// @Param next query boolean false "Получить следующий метод; требует id"
+// @Success 200 {object} serializer.FeedResponse
+// @Failure 400 "Некорректный запрос"
+// @Failure 404 "Метод не найден"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods/feed [get]
 func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 	idStr, hasID := c.GetQuery("id")
 	ctx := c.Request.Context()
@@ -110,6 +142,14 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 	c.JSON(http.StatusOK, serializer.FeedResponse{Method: serializer.FeedMethod{MigrationMethod: method, IsLiked: isLiked}})
 }
 
+// ShowAddMethodPage godoc
+// @Summary Черновик текущего пользователя
+// @Tags methods
+// @Produce json
+// @Success 200 {object} serializer.DraftResponse
+// @Failure 404 "Черновик не найден"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods/draft [get]
 func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
 	draft, exists, err := h.s.GetDraft(c.Request.Context(), currentCreatorID())
 	if err != nil {
@@ -127,6 +167,20 @@ func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+// CreateDraftMethod godoc
+// @Summary Создать черновик
+// @Tags methods
+// @Accept multipart/form-data
+// @Produce json
+// @Param title formData string true "Название метода"
+// @Param image formData file true "Изображение"
+// @Param video formData file true "Видео"
+// @Success 201 {object} serializer.DraftResponse
+// @Header 201 {string} Location "Путь к черновику"
+// @Failure 400 "Некорректный запрос"
+// @Failure 413 "Файлы слишком большие"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods [post]
 func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
 	userID := currentCreatorID()
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.MaxUploadBytes)
@@ -187,13 +241,20 @@ func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
 	c.JSON(http.StatusCreated, serializer.DraftResponse{Draft: draft})
 }
 
+// PublishDraftMethod godoc
+// @Summary Опубликовать черновик
+// @Tags methods
+// @Accept json
+// @Produce json
+// @Param request body PublishDraftRequest true "Описание, время на 1 Гб и надежность"
+// @Success 200 {object} serializer.MethodResponse
+// @Failure 400 "Некорректный запрос"
+// @Failure 404 "Черновик не найден"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods/publish [put]
 func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
 	userID := currentCreatorID()
-	var request struct {
-		Description string  `json:"description"`
-		TimeInGb    float64 `json:"time_in_gb"`
-		Reliability float64 `json:"reliability"`
-	}
+	var request PublishDraftRequest
 	if err := bindJSON(c, &request); err != nil {
 		c.Status(http.StatusBadRequest)
 		return
@@ -216,6 +277,15 @@ func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
 	c.JSON(http.StatusOK, serializer.MethodResponse{Method: method})
 }
 
+// SoftDeleteMethod godoc
+// @Summary Удалить свой метод
+// @Tags methods
+// @Param id path integer true "ID метода"
+// @Success 204 "Метод удален"
+// @Failure 400 "Некорректный ID"
+// @Failure 404 "Метод не найден"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods/{id} [delete]
 func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -236,6 +306,18 @@ func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// SetLike godoc
+// @Summary Поставить или снять лайк
+// @Tags methods
+// @Accept json
+// @Produce json
+// @Param id path integer true "ID метода"
+// @Param request body LikeRequest true "1 — поставить лайк, 0 — снять"
+// @Success 200 {object} serializer.LikeResponse
+// @Failure 400 "Некорректный запрос"
+// @Failure 404 "Метод не найден"
+// @Failure 500 "Внутренняя ошибка"
+// @Router /api/methods/{id}/like [post]
 func (h *MigrationMethodHandler) SetLike(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -243,9 +325,7 @@ func (h *MigrationMethodHandler) SetLike(c *gin.Context) {
 		return
 	}
 
-	var request struct {
-		Like *int `json:"like"`
-	}
+	var request LikeRequest
 	if err := bindJSON(c, &request); err != nil {
 		c.Status(http.StatusBadRequest)
 		return
