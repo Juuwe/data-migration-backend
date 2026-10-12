@@ -13,12 +13,22 @@ import (
 	"testing"
 
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
+	"github.com/Juuwe/data-migration-backend/internal/auth"
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 	"github.com/gin-gonic/gin"
 )
 
 type feedRepositoryStub struct {
 	service.MigrationMethodRepository
+}
+
+func newTestRouter() *gin.Engine {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(auth.WithUserID(c.Request.Context(), 1))
+		c.Next()
+	})
+	return router
 }
 
 func (feedRepositoryStub) FindByID(context.Context, int64) (ds.MigrationMethod, error) {
@@ -29,7 +39,7 @@ func TestGetFeedItemNotFoundReturnsEmpty404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	svc := service.NewMigrationMethodService(feedRepositoryStub{})
-	router := gin.New()
+	router := newTestRouter()
 	router.GET("/api/methods/feed", NewMigrationMethodHandler(svc).GetFeedItem)
 
 	response := httptest.NewRecorder()
@@ -157,9 +167,9 @@ func (r *jsonRepositoryStub) Update(_ context.Context, method *ds.MigrationMetho
 	return nil
 }
 
-func (r *jsonRepositoryStub) SoftDeleteSQL(_ context.Context, id, creatorID int64) error {
+func (r *jsonRepositoryStub) SoftDelete(_ context.Context, id, creatorID int64) error {
 	r.deletedID = id
-	if creatorID != currentCreatorID() {
+	if creatorID != int64(1) {
 		return errors.New("unexpected creator ID")
 	}
 	return nil
@@ -183,7 +193,7 @@ func TestDraftWorkflowUsesStatusCodes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo, service.NewMediaService(objectStoreStub{})))
-	router := gin.New()
+	router := newTestRouter()
 	router.GET("/api/v1/methods/draft", handler.ShowAddMethodPage)
 	router.POST("/api/v1/methods", handler.CreateDraftMethod)
 	router.PUT("/api/v1/methods/publish", handler.PublishDraftMethod)
@@ -263,7 +273,7 @@ func TestCreateDraftRejectsMissingVideo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo, service.NewMediaService(objectStoreStub{})))
-	router := gin.New()
+	router := newTestRouter()
 	router.POST("/api/v1/methods", handler.CreateDraftMethod)
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -293,7 +303,7 @@ func TestMethodMutationsRejectSystemFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
-	router := gin.New()
+	router := newTestRouter()
 	router.POST("/api/v1/methods", handler.CreateDraftMethod)
 	router.PUT("/api/v1/methods/publish", handler.PublishDraftMethod)
 
@@ -325,7 +335,7 @@ func TestMethodRoutesReadIDsFromQuery(t *testing.T) {
 		{ID: 7, Title: "Вторая", Status: ds.StatusPublished},
 	}, likedMethodIDs: map[int64]bool{7: true}}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
-	router := gin.New()
+	router := newTestRouter()
 	router.GET("/api/methods", handler.GetGrid)
 	router.GET("/api/methods/feed", handler.GetFeedItem)
 
@@ -376,14 +386,14 @@ func TestMethodRoutesReadIDsFromQuery(t *testing.T) {
 	if repo.nextID != 3 {
 		t.Fatalf("next lookup ID = %d, want 3", repo.nextID)
 	}
-	if repo.checkedLikeUserID != currentCreatorID() {
-		t.Fatalf("like lookup user ID = %d, want %d", repo.checkedLikeUserID, currentCreatorID())
+	if repo.checkedLikeUserID != int64(1) {
+		t.Fatalf("like lookup user ID = %d, want %d", repo.checkedLikeUserID, int64(1))
 	}
 }
 
 func TestGetFeedItemRejectsInvalidQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := gin.New()
+	router := newTestRouter()
 	router.GET("/api/methods/feed", NewMigrationMethodHandler(service.NewMigrationMethodService(feedRepositoryStub{})).GetFeedItem)
 
 	for _, path := range []string{
@@ -400,6 +410,29 @@ func TestGetFeedItemRejectsInvalidQuery(t *testing.T) {
 	}
 }
 
+func TestGetGridRejectsNonFiniteFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &jsonRepositoryStub{}
+	router := newTestRouter()
+	router.GET("/api/methods", NewMigrationMethodHandler(service.NewMigrationMethodService(repo)).GetGrid)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/methods?min_time=NaN&max_time=1", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+	var body struct {
+		MinTime float64 `json:"min_time"`
+		MaxTime float64 `json:"max_time"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.MinTime != 0.01 || body.MaxTime != 1 {
+		t.Fatalf("filter = %v..%v, want 0.01..1", body.MinTime, body.MaxTime)
+	}
+}
+
 func TestDraftAndPublishedMethodsShareCommonJSONFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	description := "Готовое описание"
@@ -413,7 +446,7 @@ func TestDraftAndPublishedMethodsShareCommonJSONFields(t *testing.T) {
 		}},
 	}
 	handler := NewMigrationMethodHandler(service.NewMigrationMethodService(repo))
-	router := gin.New()
+	router := newTestRouter()
 	router.GET("/api/methods/draft", handler.ShowAddMethodPage)
 	router.GET("/api/methods/feed", handler.GetFeedItem)
 
@@ -465,7 +498,7 @@ func TestDraftAndPublishedMethodsShareCommonJSONFields(t *testing.T) {
 func TestSetLikeUsesCurrentUserAndAcceptsOnlyZeroOrOne(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &jsonRepositoryStub{published: []ds.MigrationMethod{{ID: 7, Status: ds.StatusPublished}}, likesCount: 2}
-	router := gin.New()
+	router := newTestRouter()
 	router.POST("/api/v1/methods/:id/like", NewMigrationMethodHandler(service.NewMigrationMethodService(repo)).SetLike)
 
 	for _, test := range []struct {
@@ -501,7 +534,7 @@ func TestSetLikeUsesCurrentUserAndAcceptsOnlyZeroOrOne(t *testing.T) {
 				method["is_liked"] != test.liked || method["likes_count"] != test.count {
 				t.Fatalf("POST %s %s: method = %v", test.path, test.body, method)
 			}
-			if repo.likeID != 7 || repo.likeUser != currentCreatorID() || repo.likeValue != test.value {
+			if repo.likeID != 7 || repo.likeUser != int64(1) || repo.likeValue != test.value {
 				t.Fatalf("like delegation = method %d, user %d, value %d", repo.likeID, repo.likeUser, repo.likeValue)
 			}
 		} else if response.Body.Len() != 0 {

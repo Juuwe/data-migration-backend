@@ -2,11 +2,13 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 
 	"github.com/Juuwe/data-migration-backend/internal/app/serializer"
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
+	"github.com/Juuwe/data-migration-backend/internal/auth"
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 	"github.com/gin-gonic/gin"
 )
@@ -31,17 +33,19 @@ func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMeth
 
 // GetGrid godoc
 // @Summary Список опубликованных методов
-// @Description Если диапазон времени не задан или некорректен, фильтр не применяется.
+// @Description Если диапазон времени не задан или некорректен, фильтр не применяется. Bearer-токен необязателен.
 // @Tags methods
 // @Produce json
+// @Security BearerAuth
 // @Param min_time query number false "Минимальное время на 1 Гб"
 // @Param max_time query number false "Максимальное время на 1 Гб"
 // @Success 200 {object} serializer.GridResponse
+// @Failure 401 "Недействительный токен"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods [get]
 func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 	ctx := c.Request.Context()
-	currentUserID := currentCreatorID()
+	currentUserID := auth.UserID(ctx)
 
 	minTime, errMin := strconv.ParseFloat(c.Query("min_time"), 64)
 	maxTime, errMax := strconv.ParseFloat(c.Query("max_time"), 64)
@@ -51,7 +55,8 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 		err     error
 	)
 
-	if errMin != nil || errMax != nil || minTime < 0 || maxTime < minTime {
+	if errMin != nil || errMax != nil || minTime < 0 || maxTime < minTime ||
+		math.IsNaN(minTime) || math.IsNaN(maxTime) || math.IsInf(minTime, 0) || math.IsInf(maxTime, 0) {
 		minTime, maxTime = 0.01, 1.00
 		methods, err = h.s.GetPublished(ctx, currentUserID)
 	} else {
@@ -74,20 +79,22 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 
 // GetFeedItem godoc
 // @Summary Метод из ленты
-// @Description Без id возвращает первый опубликованный метод; next=true с id — следующий с переходом к первому.
+// @Description Без id возвращает первый опубликованный метод; next=true с id — следующий с переходом к первому. Bearer-токен необязателен.
 // @Tags methods
 // @Produce json
+// @Security BearerAuth
 // @Param id query integer false "ID опубликованного метода"
 // @Param next query boolean false "Получить следующий метод; требует id"
 // @Success 200 {object} serializer.FeedResponse
 // @Failure 400 "Некорректный запрос"
+// @Failure 401 "Недействительный токен"
 // @Failure 404 "Метод не найден"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods/feed [get]
 func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 	idStr, hasID := c.GetQuery("id")
 	ctx := c.Request.Context()
-	currentUserID := currentCreatorID()
+	currentUserID := auth.UserID(ctx)
 
 	var (
 		method serializer.MigrationMethod
@@ -99,17 +106,15 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 			c.Status(http.StatusBadRequest)
 			return
 		}
-		var published []serializer.MigrationMethod
-		published, err = h.s.GetPublished(ctx, currentUserID)
+		method, err = h.s.GetNextPublishedAfterID(ctx, 0, currentUserID)
 		if err != nil {
-			c.Status(http.StatusInternalServerError)
+			if errors.Is(err, ds.ErrMigrationMethodNotFound) {
+				c.Status(http.StatusNotFound)
+			} else {
+				c.Status(http.StatusInternalServerError)
+			}
 			return
 		}
-		if len(published) == 0 {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		method = published[0]
 	} else {
 		var id int64
 		id, err = strconv.ParseInt(idStr, 10, 64)
@@ -146,12 +151,14 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 // @Summary Черновик текущего пользователя
 // @Tags methods
 // @Produce json
+// @Security BearerAuth
 // @Success 200 {object} serializer.DraftResponse
+// @Failure 401 "Требуется действительный токен"
 // @Failure 404 "Черновик не найден"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods/draft [get]
 func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
-	draft, exists, err := h.s.GetDraft(c.Request.Context(), currentCreatorID())
+	draft, exists, err := h.s.GetDraft(c.Request.Context(), auth.UserID(c.Request.Context()))
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
@@ -172,17 +179,19 @@ func (h *MigrationMethodHandler) ShowAddMethodPage(c *gin.Context) {
 // @Tags methods
 // @Accept multipart/form-data
 // @Produce json
+// @Security BearerAuth
 // @Param title formData string true "Название метода"
 // @Param image formData file true "Изображение"
 // @Param video formData file true "Видео"
 // @Success 201 {object} serializer.DraftResponse
 // @Header 201 {string} Location "Путь к черновику"
 // @Failure 400 "Некорректный запрос"
+// @Failure 401 "Требуется действительный токен"
 // @Failure 413 "Файлы слишком большие"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods [post]
 func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
-	userID := currentCreatorID()
+	userID := auth.UserID(c.Request.Context())
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.MaxUploadBytes)
 	form, err := c.MultipartForm()
 	if err != nil {
@@ -246,14 +255,16 @@ func (h *MigrationMethodHandler) CreateDraftMethod(c *gin.Context) {
 // @Tags methods
 // @Accept json
 // @Produce json
+// @Security BearerAuth
 // @Param request body PublishDraftRequest true "Описание, время на 1 Гб и надежность"
 // @Success 200 {object} serializer.MethodResponse
 // @Failure 400 "Некорректный запрос"
+// @Failure 401 "Требуется действительный токен"
 // @Failure 404 "Черновик не найден"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods/publish [put]
 func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
-	userID := currentCreatorID()
+	userID := auth.UserID(c.Request.Context())
 	var request PublishDraftRequest
 	if err := bindJSON(c, &request); err != nil {
 		c.Status(http.StatusBadRequest)
@@ -280,9 +291,11 @@ func (h *MigrationMethodHandler) PublishDraftMethod(c *gin.Context) {
 // SoftDeleteMethod godoc
 // @Summary Удалить свой метод
 // @Tags methods
+// @Security BearerAuth
 // @Param id path integer true "ID метода"
 // @Success 204 "Метод удален"
 // @Failure 400 "Некорректный ID"
+// @Failure 401 "Требуется действительный токен"
 // @Failure 404 "Метод не найден"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods/{id} [delete]
@@ -293,7 +306,7 @@ func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 		return
 	}
 
-	err = h.s.DeleteMethod(c.Request.Context(), id, currentCreatorID())
+	err = h.s.DeleteMethod(c.Request.Context(), id, auth.UserID(c.Request.Context()))
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
@@ -311,10 +324,12 @@ func (h *MigrationMethodHandler) SoftDeleteMethod(c *gin.Context) {
 // @Tags methods
 // @Accept json
 // @Produce json
+// @Security BearerAuth
 // @Param id path integer true "ID метода"
 // @Param request body LikeRequest true "1 — поставить лайк, 0 — снять"
 // @Success 200 {object} serializer.LikeResponse
 // @Failure 400 "Некорректный запрос"
+// @Failure 401 "Требуется действительный токен"
 // @Failure 404 "Метод не найден"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/methods/{id}/like [post]
@@ -335,7 +350,7 @@ func (h *MigrationMethodHandler) SetLike(c *gin.Context) {
 		return
 	}
 
-	method, err := h.s.SetLike(c.Request.Context(), id, currentCreatorID(), *request.Like)
+	method, err := h.s.SetLike(c.Request.Context(), id, auth.UserID(c.Request.Context()), *request.Like)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {

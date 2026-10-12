@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
@@ -13,51 +12,33 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var (
-	ErrNotFound = ds.ErrMigrationMethodNotFound
-)
-
-type PosrtgresMigrationMethodsRepo struct {
-	db    *gorm.DB
-	rawDB *sql.DB
+type PostgresRepository struct {
+	db *gorm.DB
 }
 
-type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
-	Timezone string
-}
-
-func New(cfg Config) (*PosrtgresMigrationMethodsRepo, error) {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode, cfg.Timezone)
-
+func New(dsn string) (*PostgresRepository, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	rawDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("get raw database connection: %w", err)
-	}
-
-	return &PosrtgresMigrationMethodsRepo{
-		db:    db,
-		rawDB: rawDB,
-	}, nil
+	return &PostgresRepository{db: db}, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) FindByID(ctx context.Context, id int64) (ds.MigrationMethod, error) {
+func (r *PostgresRepository) Close() error {
+	db, err := r.db.DB()
+	if err != nil {
+		return err
+	}
+	return db.Close()
+}
+
+func (r *PostgresRepository) FindByID(ctx context.Context, id int64) (ds.MigrationMethod, error) {
 	var method ds.MigrationMethod
 
 	err := r.db.WithContext(ctx).First(&method, id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ds.MigrationMethod{}, ErrNotFound
+			return ds.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 		}
 		return ds.MigrationMethod{}, fmt.Errorf("db error: %w", err)
 	}
@@ -65,7 +46,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindByID(ctx context.Context, id int64) 
 	return method, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) FindNextPublishedAfterID(ctx context.Context, id int64) (ds.MigrationMethod, error) {
+func (r *PostgresRepository) FindNextPublishedAfterID(ctx context.Context, id int64) (ds.MigrationMethod, error) {
 	var method ds.MigrationMethod
 
 	err := r.db.WithContext(ctx).
@@ -75,7 +56,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindNextPublishedAfterID(ctx context.Con
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ds.MigrationMethod{}, ErrNotFound
+			return ds.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 		}
 		return ds.MigrationMethod{}, fmt.Errorf("db error: %w", err)
 	}
@@ -83,7 +64,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindNextPublishedAfterID(ctx context.Con
 	return method, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) FindDraft(ctx context.Context, creatorID int64) (ds.MigrationMethod, error) {
+func (r *PostgresRepository) FindDraft(ctx context.Context, creatorID int64) (ds.MigrationMethod, error) {
 	var method ds.MigrationMethod
 
 	err := r.db.WithContext(ctx).
@@ -92,7 +73,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindDraft(ctx context.Context, creatorID
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ds.MigrationMethod{}, ErrNotFound
+			return ds.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 		}
 		return ds.MigrationMethod{}, fmt.Errorf("db error: %w", err)
 	}
@@ -100,7 +81,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindDraft(ctx context.Context, creatorID
 	return method, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) FindPublished(ctx context.Context) ([]ds.MigrationMethod, error) {
+func (r *PostgresRepository) FindPublished(ctx context.Context) ([]ds.MigrationMethod, error) {
 	var methods []ds.MigrationMethod
 
 	err := r.db.WithContext(ctx).
@@ -114,7 +95,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindPublished(ctx context.Context) ([]ds
 	return methods, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]ds.MigrationMethod, error) {
+func (r *PostgresRepository) FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]ds.MigrationMethod, error) {
 	var methods []ds.MigrationMethod
 
 	err := r.db.WithContext(ctx).
@@ -128,7 +109,7 @@ func (r *PosrtgresMigrationMethodsRepo) FindPublishedByTime(ctx context.Context,
 	return methods, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) CountMethodLikesByID(ctx context.Context, methodID int64) (int, error) {
+func (r *PostgresRepository) CountMethodLikesByID(ctx context.Context, methodID int64) (int, error) {
 	var count int64
 
 	err := r.db.WithContext(ctx).
@@ -142,7 +123,7 @@ func (r *PosrtgresMigrationMethodsRepo) CountMethodLikesByID(ctx context.Context
 	return int(count), nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) IsLiked(ctx context.Context, methodID, userID int64) (bool, error) {
+func (r *PostgresRepository) IsLiked(ctx context.Context, methodID, userID int64) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).
 		Model(&ds.MigrationMethodLike{}).
@@ -154,7 +135,7 @@ func (r *PosrtgresMigrationMethodsRepo) IsLiked(ctx context.Context, methodID, u
 	return count > 0, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error) {
+func (r *PostgresRepository) CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error) {
 	if len(methodIDs) == 0 {
 		return make(map[int64]int), nil
 	}
@@ -183,14 +164,14 @@ func (r *PosrtgresMigrationMethodsRepo) CountLikesByMethodIDs(ctx context.Contex
 	return likesMap, nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) Create(ctx context.Context, m *ds.MigrationMethod) error {
+func (r *PostgresRepository) Create(ctx context.Context, m *ds.MigrationMethod) error {
 	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
 		return fmt.Errorf("create migration method: %w", err)
 	}
 	return nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) Update(ctx context.Context, m *ds.MigrationMethod) error {
+func (r *PostgresRepository) Update(ctx context.Context, m *ds.MigrationMethod) error {
 	result := r.db.WithContext(ctx).Model(m).Where("status = ?", ds.StatusDraft).Updates(map[string]any{
 		"description":  m.Description,
 		"time_in_gb":   m.TimeInGb,
@@ -202,32 +183,25 @@ func (r *PosrtgresMigrationMethodsRepo) Update(ctx context.Context, m *ds.Migrat
 		return fmt.Errorf("update migration method: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return ErrNotFound
+		return ds.ErrMigrationMethodNotFound
 	}
 	return nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) SoftDeleteSQL(ctx context.Context, id, creatorID int64) error {
-	query := `UPDATE migration_methods SET status = 'deleted' WHERE id = $1 AND creator_id = $2 AND status IN ('draft', 'published')`
-
-	result, err := r.rawDB.ExecContext(ctx, query, id, creatorID)
-	if err != nil {
-		return fmt.Errorf("delete migration method: %w", err)
+func (r *PostgresRepository) SoftDelete(ctx context.Context, id, creatorID int64) error {
+	result := r.db.WithContext(ctx).Model(&ds.MigrationMethod{}).
+		Where("id = ? AND creator_id = ? AND status IN ?", id, creatorID, []ds.Status{ds.StatusDraft, ds.StatusPublished}).
+		Update("status", ds.StatusDeleted)
+	if result.Error != nil {
+		return fmt.Errorf("delete migration method: %w", result.Error)
 	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get affected rows: %w", err)
+	if result.RowsAffected == 0 {
+		return ds.ErrMigrationMethodNotFound
 	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("%w: карточка не найдена или уже удалена", ErrNotFound)
-	}
-
 	return nil
 }
 
-func (r *PosrtgresMigrationMethodsRepo) SetLike(ctx context.Context, methodID, userID int64, like int) error {
+func (r *PostgresRepository) SetLike(ctx context.Context, methodID, userID int64, like int) error {
 	if like == 1 {
 		entry := ds.MigrationMethodLike{MethodID: methodID, UserID: userID}
 		if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&entry).Error; err != nil {

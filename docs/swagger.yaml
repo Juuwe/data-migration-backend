@@ -1,0 +1,488 @@
+basePath: /
+definitions:
+  handler.Credentials:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  handler.LikeRequest:
+    properties:
+      like:
+        enum:
+        - 0
+        - 1
+        type: integer
+    required:
+    - like
+    type: object
+  handler.PublishDraftRequest:
+    properties:
+      description:
+        type: string
+      reliability:
+        type: number
+      time_in_gb:
+        type: number
+    required:
+    - description
+    - time_in_gb
+    type: object
+  handler.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  serializer.DraftResponse:
+    properties:
+      draft:
+        $ref: '#/definitions/serializer.MigrationMethod'
+    type: object
+  serializer.FeedMethod:
+    properties:
+      created_by_current_user:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      is_liked:
+        type: boolean
+      likes_count:
+        type: integer
+      reliability:
+        type: number
+      time_in_gb:
+        type: number
+      title:
+        type: string
+      video_url:
+        type: string
+    type: object
+  serializer.FeedResponse:
+    properties:
+      method:
+        $ref: '#/definitions/serializer.FeedMethod'
+    type: object
+  serializer.GridResponse:
+    properties:
+      max_time:
+        type: number
+      methods:
+        items:
+          $ref: '#/definitions/serializer.MigrationMethod'
+        type: array
+      min_time:
+        type: number
+    type: object
+  serializer.LikeResponse:
+    properties:
+      method:
+        $ref: '#/definitions/serializer.MigrationMethodLike'
+    type: object
+  serializer.MethodResponse:
+    properties:
+      method:
+        $ref: '#/definitions/serializer.MigrationMethod'
+    type: object
+  serializer.MigrationMethod:
+    properties:
+      created_by_current_user:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      likes_count:
+        type: integer
+      reliability:
+        type: number
+      time_in_gb:
+        type: number
+      title:
+        type: string
+      video_url:
+        type: string
+    type: object
+  serializer.MigrationMethodLike:
+    properties:
+      id:
+        type: integer
+      is_liked:
+        type: boolean
+      likes_count:
+        type: integer
+    type: object
+  serializer.TokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        enum:
+        - Bearer
+        type: string
+    type: object
+  serializer.User:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: 'API методов миграции данных. Для защищенных операций нужен JWT в заголовке
+    Authorization: Bearer <token>. Выход отзывает предъявленные access- и refresh-токены.
+    Ошибки возвращаются без тела ответа.'
+  title: Data Migration API
+  version: "1.0"
+paths:
+  /api/methods:
+    get:
+      description: Если диапазон времени не задан или некорректен, фильтр не применяется.
+        Bearer-токен необязателен.
+      parameters:
+      - description: Минимальное время на 1 Гб
+        in: query
+        name: min_time
+        type: number
+      - description: Максимальное время на 1 Гб
+        in: query
+        name: max_time
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.GridResponse'
+        "401":
+          description: Недействительный токен
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - {}
+      - BearerAuth: []
+      summary: Список опубликованных методов
+      tags:
+      - methods
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Название метода
+        in: formData
+        name: title
+        required: true
+        type: string
+      - description: Изображение
+        in: formData
+        name: image
+        required: true
+        type: file
+      - description: Видео
+        in: formData
+        name: video
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              description: Путь к черновику
+              type: string
+          schema:
+            $ref: '#/definitions/serializer.DraftResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Требуется действительный токен
+        "413":
+          description: Файлы слишком большие
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Создать черновик
+      tags:
+      - methods
+  /api/methods/{id}:
+    delete:
+      parameters:
+      - description: ID метода
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: Метод удален
+        "400":
+          description: Некорректный ID
+        "401":
+          description: Требуется действительный токен
+        "404":
+          description: Метод не найден
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Удалить свой метод
+      tags:
+      - methods
+  /api/methods/{id}/like:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: ID метода
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 1 — поставить лайк, 0 — снять
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LikeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.LikeResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Требуется действительный токен
+        "404":
+          description: Метод не найден
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Поставить или снять лайк
+      tags:
+      - methods
+  /api/methods/draft:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.DraftResponse'
+        "401":
+          description: Требуется действительный токен
+        "404":
+          description: Черновик не найден
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Черновик текущего пользователя
+      tags:
+      - methods
+  /api/methods/feed:
+    get:
+      description: Без id возвращает первый опубликованный метод; next=true с id —
+        следующий с переходом к первому. Bearer-токен необязателен.
+      parameters:
+      - description: ID опубликованного метода
+        in: query
+        name: id
+        type: integer
+      - description: Получить следующий метод; требует id
+        in: query
+        name: next
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.FeedResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Недействительный токен
+        "404":
+          description: Метод не найден
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - {}
+      - BearerAuth: []
+      summary: Метод из ленты
+      tags:
+      - methods
+  /api/methods/publish:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Описание, время на 1 Гб и надежность
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.PublishDraftRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.MethodResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Требуется действительный токен
+        "404":
+          description: Черновик не найден
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Опубликовать черновик
+      tags:
+      - methods
+  /api/users:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Email и пароль
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.Credentials'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/serializer.User'
+        "400":
+          description: Некорректный запрос
+        "409":
+          description: Email уже занят
+        "500":
+          description: Внутренняя ошибка
+      summary: Зарегистрировать пользователя
+      tags:
+      - users
+  /api/users/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Email и пароль
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.Credentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.TokenResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Неверный email или пароль
+        "500":
+          description: Внутренняя ошибка
+      summary: Вход пользователя
+      tags:
+      - users
+  /api/users/logout:
+    post:
+      consumes:
+      - application/json
+      description: Добавляет access-токен в Redis-блэклист до истечения срока и отзывает
+        refresh-токен. После ответа удалите оба токена на клиенте.
+      parameters:
+      - description: Текущий refresh-токен
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.RefreshRequest'
+      responses:
+        "204":
+          description: Без тела
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Недействительный access- или refresh-токен
+        "500":
+          description: Внутренняя ошибка
+      security:
+      - BearerAuth: []
+      summary: Выход пользователя
+      tags:
+      - users
+  /api/users/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Refresh-токен одноразовый; при успешном обмене старый токен перестает
+        действовать.
+      parameters:
+      - description: Refresh-токен
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/serializer.TokenResponse'
+        "400":
+          description: Некорректный запрос
+        "401":
+          description: Недействительный refresh-токен
+        "500":
+          description: Внутренняя ошибка
+      summary: Обновить пару токенов
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

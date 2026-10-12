@@ -59,12 +59,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_method
 
 INSERT INTO users (id, email, password) OVERRIDING SYSTEM VALUE
 VALUES
-    (1, 'student@example.com', '!'),
-    (2, 'analyst@example.com', '!'),
-    (3, 'engineer@example.com', '!'),
-    (4, 'architect@example.com', '!'),
-    (5, 'reviewer@example.com', '!')
-ON CONFLICT DO NOTHING;
+    (1, 'student@example.com', 'password123'),
+    (2, 'analyst@example.com', 'password123'),
+    (3, 'engineer@example.com', 'password123'),
+    (4, 'architect@example.com', 'password123'),
+    (5, 'reviewer@example.com', 'password123')
+ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password
+WHERE users.password = '!';
 
 SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users), true);
 

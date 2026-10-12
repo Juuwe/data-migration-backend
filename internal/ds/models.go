@@ -7,6 +7,7 @@ import (
 
 var ErrMigrationMethodNotFound = errors.New("migration method not found")
 var ErrUserAlreadyExists = errors.New("пользователь с таким email уже существует")
+var ErrUserNotFound = errors.New("user not found")
 
 type Status string
 
@@ -36,14 +37,6 @@ type MigrationMethod struct {
 
 func (m *MigrationMethod) IsPublished() bool {
 	return m.Status == StatusPublished
-}
-
-func (m *MigrationMethod) IsDeleted() bool {
-	return m.Status == StatusDeleted
-}
-
-func (m *MigrationMethod) IsDraft() bool {
-	return m.Status == StatusDraft
 }
 
 func (MigrationMethod) TableName() string {

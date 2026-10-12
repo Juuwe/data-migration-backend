@@ -1,0 +1,16 @@
+.git
+.env*
+*.orig
+minio_data
+minio_config
+*.docx
+bin
+vendor
+node_modules
+dist
+build
+logs
+*.log
+*.out
+*.test
+coverage.*

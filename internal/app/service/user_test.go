@@ -3,57 +3,202 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Juuwe/data-migration-backend/internal/auth"
 	"github.com/Juuwe/data-migration-backend/internal/ds"
 )
 
 type userRepositoryStub struct {
-	created *ds.User
-	err     error
+	user      ds.User
+	createErr error
+	findErr   error
+	refresh   map[string]time.Time
+	blacklist map[string]bool
 }
 
-func (r *userRepositoryStub) CreateUser(_ context.Context, user *ds.User) error {
-	if r.err != nil {
-		return r.err
+func (r *userRepositoryStub) SaveRefreshToken(_ context.Context, _ int64, hash string, ttl time.Duration) error {
+	if r.refresh == nil {
+		r.refresh = make(map[string]time.Time)
 	}
-	user.ID = 12
-	copy := *user
-	r.created = &copy
+	r.refresh[hash] = time.Now().Add(ttl)
 	return nil
 }
 
-func TestRegisterStoresPasswordAsProvided(t *testing.T) {
-	repo := &userRepositoryStub{}
-	svc := NewUserService(repo)
+func (r *userRepositoryStub) RotateRefreshToken(_ context.Context, oldHash, newHash string, ttl time.Duration) (int64, error) {
+	oldExpiry, ok := r.refresh[oldHash]
+	if !ok || !oldExpiry.After(time.Now()) {
+		return 0, auth.ErrRefreshTokenNotFound
+	}
+	delete(r.refresh, oldHash)
+	r.refresh[newHash] = time.Now().Add(ttl)
+	return r.user.ID, nil
+}
 
-	user, err := svc.Register(context.Background(), "  student@example.com  ", "  secret  ")
+func (r *userRepositoryStub) IsAccessTokenBlacklisted(_ context.Context, hash string) (bool, error) {
+	return r.blacklist[hash], nil
+}
+
+func (r *userRepositoryStub) RevokeTokens(_ context.Context, userID int64, accessHash, refreshHash string, _ time.Duration) error {
+	if userID != r.user.ID || !r.refresh[refreshHash].After(time.Now()) {
+		return auth.ErrRefreshTokenNotFound
+	}
+	delete(r.refresh, refreshHash)
+	if r.blacklist == nil {
+		r.blacklist = make(map[string]bool)
+	}
+	r.blacklist[accessHash] = true
+	return nil
+}
+
+func (r *userRepositoryStub) CreateUser(_ context.Context, user *ds.User) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	user.ID = 12
+	r.user = *user
+	return nil
+}
+
+func (r *userRepositoryStub) FindUserByEmail(_ context.Context, email string) (ds.User, error) {
+	if r.findErr != nil {
+		return ds.User{}, r.findErr
+	}
+	if r.user.ID == 0 || r.user.Email != email {
+		return ds.User{}, ds.ErrUserNotFound
+	}
+	return r.user, nil
+}
+
+func (r *userRepositoryStub) FindUserByID(_ context.Context, id int64) (ds.User, error) {
+	if r.findErr != nil {
+		return ds.User{}, r.findErr
+	}
+	if r.user.ID == 0 || r.user.ID != id {
+		return ds.User{}, ds.ErrUserNotFound
+	}
+	return r.user, nil
+}
+
+func newUserService(t *testing.T, repo *userRepositoryStub) *UserService {
+	t.Helper()
+	tokens, err := auth.NewManager(strings.Repeat("s", 32))
 	if err != nil {
-		t.Fatalf("Register() error = %v", err)
+		t.Fatal(err)
 	}
-	if user.ID != 12 || user.Email != "student@example.com" || repo.created == nil {
-		t.Fatalf("registered user = %+v, repository user = %+v", user, repo.created)
+	return NewUserService(repo, tokens, repo)
+}
+
+func TestRegisterStoresPlainPasswordAndLogin(t *testing.T) {
+	repo := &userRepositoryStub{}
+	svc := newUserService(t, repo)
+	user, err := svc.Register(context.Background(), "  student@example.com  ", "password123")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if user.Password != "  secret  " || repo.created.Password != "  secret  " {
-		t.Fatalf("password changed: registered user = %q, repository user = %q", user.Password, repo.created.Password)
+	if user.ID != 12 || user.Email != "student@example.com" || user.Password != "password123" {
+		t.Fatalf("registered user = %+v", user)
+	}
+	if repo.user.Password != "password123" {
+		t.Fatalf("stored password = %q", repo.user.Password)
+	}
+	pair, err := svc.Authenticate(context.Background(), user.Email, "password123")
+	if err != nil || pair.AccessToken == "" || pair.RefreshToken == "" || pair.ExpiresIn != 3600 {
+		t.Fatalf("login tokens = %+v, error = %v", pair, err)
+	}
+	id, err := svc.UserIDFromToken(context.Background(), pair.AccessToken)
+	if err != nil || id != user.ID {
+		t.Fatalf("token user ID = %d, error = %v", id, err)
+	}
+	repo.user = ds.User{}
+	if _, err := svc.UserIDFromToken(context.Background(), pair.AccessToken); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Fatalf("deleted user token error = %v", err)
 	}
 }
 
-func TestRegisterRejectsInvalidInputAndDuplicateEmail(t *testing.T) {
+func TestRegisterAndLoginRejectInvalidInput(t *testing.T) {
 	repo := &userRepositoryStub{}
-	svc := NewUserService(repo)
-	if _, err := svc.Register(context.Background(), "bad-email", "secret"); !errors.Is(err, ErrInvalidEmail) {
-		t.Fatalf("invalid email error = %v", err)
+	svc := newUserService(t, repo)
+	if _, err := svc.Register(context.Background(), "bad-email", "password123"); !errors.Is(err, ErrInvalidEmail) {
+		t.Fatalf("invalid email: %v", err)
 	}
-	if _, err := svc.Register(context.Background(), "student@example.com", ""); !errors.Is(err, ErrInvalidPassword) {
-		t.Fatalf("empty password error = %v", err)
+	for _, password := range []string{"short", strings.Repeat("x", 73)} {
+		if _, err := svc.Register(context.Background(), "student@example.com", password); !errors.Is(err, ErrInvalidPassword) {
+			t.Fatalf("invalid password length %d: %v", len(password), err)
+		}
 	}
-	if repo.created != nil {
-		t.Fatal("repository was called for invalid input")
+	if repo.user.ID != 0 {
+		t.Fatal("user created for invalid input")
 	}
+	if _, err := svc.Authenticate(context.Background(), "missing@example.com", "password123"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("unknown user: %v", err)
+	}
+	if _, err := svc.Register(context.Background(), "student@example.com", "password123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Authenticate(context.Background(), "student@example.com", "wrong-password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	repo.createErr = ds.ErrUserAlreadyExists
+	if _, err := svc.Register(context.Background(), "student@example.com", "password123"); !errors.Is(err, ds.ErrUserAlreadyExists) {
+		t.Fatalf("duplicate email: %v", err)
+	}
+}
 
-	repo.err = ds.ErrUserAlreadyExists
-	if _, err := svc.Register(context.Background(), "student@example.com", "secret"); !errors.Is(err, ds.ErrUserAlreadyExists) {
-		t.Fatalf("duplicate email error = %v", err)
+func TestRefreshRotatesToken(t *testing.T) {
+	repo := &userRepositoryStub{}
+	svc := newUserService(t, repo)
+	if _, err := svc.Register(context.Background(), "student@example.com", "password123"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.Authenticate(context.Background(), "student@example.com", "password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.Refresh(context.Background(), first.RefreshToken)
+	if err != nil || second.AccessToken == first.AccessToken || second.RefreshToken == first.RefreshToken || second.ExpiresIn != 3600 {
+		t.Fatalf("refreshed tokens = %+v, error = %v", second, err)
+	}
+	if _, err := svc.Refresh(context.Background(), first.RefreshToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("reused refresh token error = %v", err)
+	}
+	if _, err := svc.Refresh(context.Background(), first.AccessToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("access token used for refresh: %v", err)
+	}
+	third, err := svc.Refresh(context.Background(), second.RefreshToken)
+	if err != nil {
+		t.Fatalf("new refresh token rejected: %v", err)
+	}
+	for hash := range repo.refresh {
+		repo.refresh[hash] = time.Now().Add(-time.Second)
+	}
+	if _, err := svc.Refresh(context.Background(), third.RefreshToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("expired refresh token error = %v", err)
+	}
+}
+
+func TestLogoutRevokesCurrentTokenPair(t *testing.T) {
+	repo := &userRepositoryStub{}
+	svc := newUserService(t, repo)
+	if _, err := svc.Register(context.Background(), "student@example.com", "password123"); err != nil {
+		t.Fatal(err)
+	}
+	pair, err := svc.Authenticate(context.Background(), "student@example.com", "password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Logout(context.Background(), pair.AccessToken, "invalid"); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("invalid refresh token logout: %v", err)
+	}
+	if err := svc.Logout(context.Background(), pair.AccessToken, pair.RefreshToken); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if _, err := svc.UserIDFromToken(context.Background(), pair.AccessToken); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Fatalf("revoked access token: %v", err)
+	}
+	if _, err := svc.Refresh(context.Background(), pair.RefreshToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("revoked refresh token: %v", err)
 	}
 }

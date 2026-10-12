@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -38,7 +38,7 @@ type MigrationMethodRepository interface {
 
 	Create(ctx context.Context, method *ds.MigrationMethod) error
 	Update(ctx context.Context, method *ds.MigrationMethod) error
-	SoftDeleteSQL(ctx context.Context, id, creatorID int64) error
+	SoftDelete(ctx context.Context, id, creatorID int64) error
 	SetLike(ctx context.Context, methodID, userID int64, like int) error
 }
 
@@ -67,13 +67,13 @@ func (s *MigrationMethodService) serializeMethod(m ds.MigrationMethod, likesCoun
 		s.media.publicURL(m.VideoKey, DefaultVideoURL))
 }
 
-func (s *MigrationMethodService) serializeSingleMethod(ctx context.Context, m *ds.MigrationMethod, currentUserID int64) (serializer.MigrationMethod, error) {
+func (s *MigrationMethodService) serializeSingleMethod(ctx context.Context, m ds.MigrationMethod, currentUserID int64) (serializer.MigrationMethod, error) {
 	likesCount, err := s.repo.CountMethodLikesByID(ctx, m.ID)
 	if err != nil {
-		log.Printf("[WARN] Failed to get likes count for method %d: %v", m.ID, err)
+		return serializer.MigrationMethod{}, err
 	}
 
-	return s.serializeMethod(*m, likesCount, currentUserID), nil
+	return s.serializeMethod(m, likesCount, currentUserID), nil
 }
 
 func (s *MigrationMethodService) serializeMethodList(ctx context.Context, methods []ds.MigrationMethod, currentUserID int64) ([]serializer.MigrationMethod, error) {
@@ -88,7 +88,7 @@ func (s *MigrationMethodService) serializeMethodList(ctx context.Context, method
 
 	likesMap, err := s.repo.CountLikesByMethodIDs(ctx, methodIDs)
 	if err != nil {
-		log.Printf("Failed to fetch likes count batch: %v", err)
+		return nil, err
 	}
 
 	result := make([]serializer.MigrationMethod, len(methods))
@@ -126,18 +126,17 @@ func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id
 		if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
 			return serializer.MigrationMethod{}, err
 		}
+		if id == 0 {
+			return serializer.MigrationMethod{}, err
+		}
 
-		published, findErr := s.repo.FindPublished(ctx)
-		if findErr != nil {
-			return serializer.MigrationMethod{}, findErr
+		m, err = s.repo.FindNextPublishedAfterID(ctx, 0)
+		if err != nil {
+			return serializer.MigrationMethod{}, err
 		}
-		if len(published) == 0 {
-			return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
-		}
-		m = published[0]
 	}
 
-	return s.serializeSingleMethod(ctx, &m, currentUserID)
+	return s.serializeSingleMethod(ctx, m, currentUserID)
 }
 
 func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID int64) (serializer.MigrationMethod, error) {
@@ -150,7 +149,7 @@ func (s *MigrationMethodService) GetByID(ctx context.Context, id, currentUserID 
 		return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
 	}
 
-	return s.serializeSingleMethod(ctx, &m, currentUserID)
+	return s.serializeSingleMethod(ctx, m, currentUserID)
 }
 
 func (s *MigrationMethodService) IsLiked(ctx context.Context, methodID, userID int64) (bool, error) {
@@ -160,7 +159,7 @@ func (s *MigrationMethodService) IsLiked(ctx context.Context, methodID, userID i
 func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime, maxTime float64, currentUserID int64) ([]serializer.MigrationMethod, error) {
 	methods, err := s.repo.FindPublishedByTime(ctx, minTime, maxTime)
 	if err != nil {
-		return []serializer.MigrationMethod{}, err
+		return nil, err
 	}
 
 	return s.serializeMethodList(ctx, methods, currentUserID)
@@ -175,12 +174,12 @@ func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title st
 		return serializer.MigrationMethod{}, ErrDraftTitleTooLong
 	}
 
-	_, exists, err := s.GetDraft(ctx, creatorID)
-	if err != nil {
-		return serializer.MigrationMethod{}, err
-	}
-	if exists {
+	_, err := s.repo.FindDraft(ctx, creatorID)
+	if err == nil {
 		return serializer.MigrationMethod{}, ErrDraftAlreadyExists
+	}
+	if !errors.Is(err, ds.ErrMigrationMethodNotFound) {
+		return serializer.MigrationMethod{}, err
 	}
 	if s.media == nil {
 		return serializer.MigrationMethod{}, errors.New("хранилище медиа не настроено")
@@ -219,18 +218,15 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 	if desc == "" {
 		return serializer.MigrationMethod{}, ErrInvalidDescription
 	}
-	if timeInGb <= 0 {
+	if timeInGb <= 0 || math.IsNaN(timeInGb) || math.IsInf(timeInGb, 0) {
 		return serializer.MigrationMethod{}, ErrInvalidTimeInGb
 	}
-	if reliability < 0 || reliability > 1 {
+	if reliability < 0 || reliability > 1 || math.IsNaN(reliability) || math.IsInf(reliability, 0) {
 		return serializer.MigrationMethod{}, ErrInvalidReliability
 	}
 
 	draft, err := s.repo.FindDraft(ctx, creatorID)
 	if err != nil {
-		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
-			return serializer.MigrationMethod{}, ds.ErrMigrationMethodNotFound
-		}
 		return serializer.MigrationMethod{}, err
 	}
 
@@ -244,14 +240,14 @@ func (s *MigrationMethodService) PublishDraft(ctx context.Context, creatorID int
 	if err := s.repo.Update(ctx, &draft); err != nil {
 		return serializer.MigrationMethod{}, err
 	}
-	return s.serializeSingleMethod(ctx, &draft, creatorID)
+	return s.serializeSingleMethod(ctx, draft, creatorID)
 }
 
 func (s *MigrationMethodService) DeleteMethod(ctx context.Context, id, creatorID int64) error {
 	if id <= 0 {
 		return errors.New("некорректный ID")
 	}
-	return s.repo.SoftDeleteSQL(ctx, id, creatorID)
+	return s.repo.SoftDelete(ctx, id, creatorID)
 }
 
 var ErrInvalidLike = errors.New("значение like должно быть 0 или 1")

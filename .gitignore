@@ -28,7 +28,6 @@ go.work.sum
 .env
 
 /bin/
-/pkg/
 
 minio_data/
 minio_config/

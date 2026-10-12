@@ -1,18 +1,10 @@
 # Сервис методов миграции данных
 
-## Swagger
-
-Спецификация Swagger 2.0 генерируется Swaggo v2 из комментариев к хендлерам и доступна в [`docs/swagger.json`](docs/swagger.json). После изменения маршрутов или DTO обновите файл командой:
-
-```bash
-go run github.com/swaggo/swag/v2/cmd/swag@v2.0.0-rc6 init -g cmd/data-migration/main.go -d . --parseInternal --outputTypes json -o docs
-```
-
-Вход и выход сейчас возвращают 501; в спецификации они описаны как заглушки.
-
 ## HTTP-роуты
 
-GET-запросы, создание и публикация черновика, постановка лайка и регистрация возвращают JSON. Остальные запросы и ошибки обработчиков API возвращают только HTTP-код без тела.
+GET-запросы, создание и публикация черновика, постановка лайка, регистрация и вход возвращают JSON. Удаление, выход и ошибки API возвращают только HTTP-код без тела. Защищённые маршруты без действительного токена возвращают 401.
+
+Swagger UI доступен по адресу `http://localhost:8081/swagger/index.html`. Для обновления `docs/swagger.yaml` запускайте `./generate-swagger.sh`: он вызывает `swaggo` и сохраняет необязательную авторизацию для публичных GET. Прямой `swag init` не выражает вариант запроса без токена.
 
 | Метод | URL | Ответ | Описание | Функция |
 |---|---|---|---|---|
@@ -24,8 +16,9 @@ GET-запросы, создание и публикация черновика,
 | DELETE | `/api/methods/{id}` | 204 — без тела | Помечает свой метод миграции как удаленный. | `SoftDeleteMethod` |
 | POST | `/api/methods/{id}/like` | 200 — `method` с `id`, `is_liked`, `likes_count` | Ставит лайк при `{"like":1}`, снимает при `{"like":0}`. | `SetLike` |
 | POST | `/api/users` | 201 — `id`, `email` | Регистрирует пользователя по `email` и `password`. | `Register` |
-| POST | `/api/users/login` | 501 — без тела | Заглушка входа. | `Authenticate` |
-| POST | `/api/users/logout` | 501 — без тела | Заглушка выхода. | `Logout` |
+| POST | `/api/users/login` | 200 — `access_token`, `token_type`, `expires_in`, `refresh_token` | Вход по `email` и `password`. | `Authenticate` |
+| POST | `/api/users/refresh` | 200 — новая пара токенов | Обновляет токены по `refresh_token`; старый одноразовый. | `Refresh` |
+| POST | `/api/users/logout` | 204 — без тела | Отзывает предъявленные access- и refresh-токены; требует Bearer и JSON с `refresh_token`. | `Logout` |
 
 ## Таблицы и данные
 
@@ -37,7 +30,7 @@ GET-запросы, создание и публикация черновика,
 |---|---|---|---|
 | `id` | `INT GENERATED ALWAYS AS IDENTITY` | **PK** | ID пользователя |
 | `email` | `VARCHAR(255)` | `NOT NULL`, уникальный индекс | Адрес электронной почты |
-| `password` | `VARCHAR(255)` | `NOT NULL` | Пароль в переданном виде |
+| `password` | `VARCHAR(255)` | `NOT NULL` | Пароль в открытом виде для учебного проекта |
 
 ### `migration_methods`
 

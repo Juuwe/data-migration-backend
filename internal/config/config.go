@@ -11,9 +11,12 @@ import (
 )
 
 type Config struct {
-	WebServer WebServer
-	Database  Database
-	Storage   ObjectStorage
+	WebServer     WebServer
+	Database      Database
+	Storage       ObjectStorage
+	JWTSecret     string
+	RedisAddr     string
+	RedisPassword string
 }
 
 type ObjectStorage struct {
@@ -85,6 +88,9 @@ func Load(dotEnvPath string) (Config, error) {
 	publicBaseURL := strings.TrimRight(envString("MINIO_BASE_URL", scheme+"://"+endpoint), "/") + "/" + bucket
 
 	return Config{
+		JWTSecret:     envString("JWT_SECRET", ""),
+		RedisAddr:     envString("REDIS_ADDR", "127.0.0.1:6379"),
+		RedisPassword: envString("REDIS_PASSWORD", ""),
 		WebServer: WebServer{
 			Host: envString("WEB_HOST", "0.0.0.0"),
 			Port: webPort,

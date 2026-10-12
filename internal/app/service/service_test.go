@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"strings"
 	"testing"
 
@@ -56,6 +57,8 @@ type repositoryStub struct {
 	likeValue          int
 	likeCalls          int
 	likesCount         int
+	likesCountErr      error
+	likesMapErr        error
 	isLiked            bool
 	createErr          error
 	updateErr          error
@@ -67,7 +70,10 @@ func (r *repositoryStub) FindByID(context.Context, int64) (ds.MigrationMethod, e
 	return r.method, r.methodErr
 }
 
-func (r *repositoryStub) FindNextPublishedAfterID(context.Context, int64) (ds.MigrationMethod, error) {
+func (r *repositoryStub) FindNextPublishedAfterID(_ context.Context, id int64) (ds.MigrationMethod, error) {
+	if id == 0 && len(r.published) > 0 {
+		return r.published[0], nil
+	}
 	return r.method, r.methodErr
 }
 
@@ -85,11 +91,11 @@ func (r *repositoryStub) FindPublished(context.Context) ([]ds.MigrationMethod, e
 }
 
 func (r *repositoryStub) CountMethodLikesByID(context.Context, int64) (int, error) {
-	return r.likesCount, nil
+	return r.likesCount, r.likesCountErr
 }
 
 func (r *repositoryStub) CountLikesByMethodIDs(context.Context, []int64) (map[int64]int, error) {
-	return map[int64]int{}, nil
+	return map[int64]int{}, r.likesMapErr
 }
 
 func (r *repositoryStub) IsLiked(context.Context, int64, int64) (bool, error) {
@@ -111,7 +117,7 @@ func (r *repositoryStub) Update(_ context.Context, method *ds.MigrationMethod) e
 	return r.updateErr
 }
 
-func (r *repositoryStub) SoftDeleteSQL(_ context.Context, id, creatorID int64) error {
+func (r *repositoryStub) SoftDelete(_ context.Context, id, creatorID int64) error {
 	r.deleteID = id
 	r.deleteCreatorID = creatorID
 	return r.softDeleteErr
@@ -177,6 +183,26 @@ func TestGetByIDUsesDefaultMedia(t *testing.T) {
 	}
 }
 
+func TestGetByIDPropagatesLikesError(t *testing.T) {
+	want := errors.New("likes unavailable")
+	svc := NewMigrationMethodService(&repositoryStub{
+		method: ds.MigrationMethod{ID: 7, Status: ds.StatusPublished}, likesCountErr: want,
+	})
+	if _, err := svc.GetByID(context.Background(), 7, 1); !errors.Is(err, want) {
+		t.Fatalf("GetByID() error = %v, want %v", err, want)
+	}
+}
+
+func TestGetPublishedPropagatesLikesError(t *testing.T) {
+	want := errors.New("likes unavailable")
+	svc := NewMigrationMethodService(&repositoryStub{
+		published: []ds.MigrationMethod{{ID: 7, Status: ds.StatusPublished}}, likesMapErr: want,
+	})
+	if _, err := svc.GetPublished(context.Background(), 1); !errors.Is(err, want) {
+		t.Fatalf("GetPublished() error = %v, want %v", err, want)
+	}
+}
+
 func TestGetByIDRejectsDeletedMethod(t *testing.T) {
 	repo := &repositoryStub{method: ds.MigrationMethod{ID: 7, Status: ds.StatusDeleted}}
 	svc := NewMigrationMethodService(repo)
@@ -213,6 +239,24 @@ func TestGetNextPublishedAfterLastWrapsToFirst(t *testing.T) {
 	}
 	if view.ID != 3 {
 		t.Fatalf("GetNextPublishedAfterID() ID = %d, want 3", view.ID)
+	}
+}
+
+func TestPublishDraftRejectsNonFiniteNumbers(t *testing.T) {
+	svc := NewMigrationMethodService(&repositoryStub{})
+	for _, test := range []struct {
+		timeInGb    float64
+		reliability float64
+		want        error
+	}{
+		{math.NaN(), 0.5, ErrInvalidTimeInGb},
+		{math.Inf(1), 0.5, ErrInvalidTimeInGb},
+		{0.5, math.NaN(), ErrInvalidReliability},
+	} {
+		_, err := svc.PublishDraft(context.Background(), 1, "описание", test.timeInGb, test.reliability)
+		if !errors.Is(err, test.want) {
+			t.Fatalf("PublishDraft(%v, %v) error = %v, want %v", test.timeInGb, test.reliability, err, test.want)
+		}
 	}
 }
 
@@ -387,10 +431,10 @@ func TestDeleteMethodUsesRepositorySQLMethod(t *testing.T) {
 		t.Fatalf("DeleteMethod() error = %v", err)
 	}
 	if repo.deleteID != 9 {
-		t.Fatalf("SoftDeleteSQL() id = %d, want 9", repo.deleteID)
+		t.Fatalf("SoftDelete() id = %d, want 9", repo.deleteID)
 	}
 	if repo.deleteCreatorID != 3 {
-		t.Fatalf("SoftDeleteSQL() creator ID = %d, want 3", repo.deleteCreatorID)
+		t.Fatalf("SoftDelete() creator ID = %d, want 3", repo.deleteCreatorID)
 	}
 }
 

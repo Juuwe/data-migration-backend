@@ -1,0 +1,46 @@
+package tokenstore
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/Juuwe/data-migration-backend/internal/auth"
+	"github.com/redis/go-redis/v9"
+)
+
+const accessBlacklistPrefix = "data-migration-backend:access-blacklist:"
+
+var revokeScript = redis.NewScript(`
+local user_id = redis.call('GET', KEYS[1])
+if not user_id or user_id ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+redis.call('SET', KEYS[2], '1', 'PX', ARGV[2])
+return 1
+`)
+
+func (s *Store) IsAccessTokenBlacklisted(ctx context.Context, tokenHash string) (bool, error) {
+	count, err := s.client.Exists(ctx, accessBlacklistPrefix+tokenHash).Result()
+	if err != nil {
+		return false, fmt.Errorf("check access token blacklist: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (s *Store) RevokeTokens(ctx context.Context, userID int64, accessHash, refreshHash string, accessTTL time.Duration) error {
+	ttl := (accessTTL + time.Millisecond - 1) / time.Millisecond
+	if ttl < 1 {
+		ttl = 1
+	}
+	removed, err := revokeScript.Run(ctx, s.client,
+		[]string{keyPrefix + refreshHash, accessBlacklistPrefix + accessHash},
+		strconv.FormatInt(userID, 10), ttl).Int()
+	if err != nil {
+		return fmt.Errorf("revoke tokens: %w", err)
+	}
+	if removed == 0 {
+		return auth.ErrRefreshTokenNotFound
+	}
+	return nil
+}

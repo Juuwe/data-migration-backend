@@ -1,0 +1,71 @@
+package tokenstore
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/Juuwe/data-migration-backend/internal/auth"
+	"github.com/redis/go-redis/v9"
+)
+
+const keyPrefix = "data-migration-backend:refresh:"
+
+var rotateScript = redis.NewScript(`
+local user_id = redis.call('GET', KEYS[1])
+if not user_id then return nil end
+if not redis.call('SET', KEYS[2], user_id, 'PX', ARGV[1], 'NX') then
+  return redis.error_reply('refresh token collision')
+end
+redis.call('DEL', KEYS[1])
+return user_id
+`)
+
+type Store struct {
+	client *redis.Client
+}
+
+func New(ctx context.Context, address, password string) (*Store, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr: address, Password: password,
+		DialTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
+	})
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("connect to Redis: %w", err)
+	}
+	return &Store{client: client}, nil
+}
+
+func (s *Store) Close() error {
+	return s.client.Close()
+}
+
+func (s *Store) SaveRefreshToken(ctx context.Context, userID int64, tokenHash string, ttl time.Duration) error {
+	stored, err := s.client.SetNX(ctx, keyPrefix+tokenHash, strconv.FormatInt(userID, 10), ttl).Result()
+	if err != nil {
+		return fmt.Errorf("save refresh token: %w", err)
+	}
+	if !stored {
+		return errors.New("refresh token collision")
+	}
+	return nil
+}
+
+func (s *Store) RotateRefreshToken(ctx context.Context, oldHash, newHash string, ttl time.Duration) (int64, error) {
+	userID, err := rotateScript.Run(ctx, s.client,
+		[]string{keyPrefix + oldHash, keyPrefix + newHash}, ttl.Milliseconds()).Text()
+	if errors.Is(err, redis.Nil) {
+		return 0, auth.ErrRefreshTokenNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("rotate refresh token: %w", err)
+	}
+	id, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, errors.New("invalid user ID in refresh token store")
+	}
+	return id, nil
+}

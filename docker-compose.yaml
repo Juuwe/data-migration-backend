@@ -1,62 +1,119 @@
 services:
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    restart: unless-stopped
+  app:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn}
+    restart: on-failure:3
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:${WEB_PORT:-8081}:8081"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8081
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-data_migration}
+      DB_SSL_MODE: disable
+      DB_TIMEZONE: UTC
+      REDIS_ADDR: redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-admin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-password123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-data-migration-service}
+      MINIO_BASE_URL: http://localhost:${MINIO_API_PORT:-9010}
+      MINIO_USE_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-development-only-jwt-secret-at-least-32-bytes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: on-failure:3
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9010}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-password123}
     volumes:
       - ./minio_data:/data
-      - ./minio_config:/root/.minio
     command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
 
   minio-init:
-    image: quay.io/minio/mc:latest
-    container_name: minio-init
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
-        condition: service_healthy
+        condition: service_started
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-password123}
       MINIO_BUCKET: ${MINIO_BUCKET:-data-migration-service}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
-        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
-        mc anonymous set download "local/$${MINIO_BUCKET}"
+        attempt=0
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+          mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
+          mc anonymous set download "local/$${MINIO_BUCKET}"; do
+          attempt=$$((attempt + 1))
+          if [ "$${attempt}" -ge 30 ]; then exit 1; fi
+          sleep 2
+        done
     restart: "no"
 
   postgres:
     image: postgres:15-alpine
-    container_name: postgres
-    restart: unless-stopped
+    restart: on-failure:3
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-data_migration}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: redis
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    restart: on-failure:3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - redisdata:/data
     command: redis-server --appendonly yes
@@ -67,13 +124,19 @@ services:
       retries: 5
 
   adminer:
-    image: adminer:latest
-    container_name: adminer
-    restart: unless-stopped
+    image: adminer:6.0.1
+    profiles: ["tools"]
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
-      - "8082:8080"
+      - "127.0.0.1:${ADMINER_PORT:-8083}:8080"
 
 volumes:
   pgdata:
