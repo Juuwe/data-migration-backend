@@ -156,3 +156,8 @@ FROM (
 JOIN users ON users.email = seed.email
 JOIN migration_methods methods ON methods.title = seed.title
 ON CONFLICT (user_id, method_id) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_migration_methods_status_time_id
+    ON migration_methods (status, time_in_gb, id);
+ANALYZE migration_methods;
+

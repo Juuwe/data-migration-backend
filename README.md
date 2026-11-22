@@ -8,8 +8,8 @@ Swagger UI доступен по адресу `http://localhost:8081/swagger/ind
 
 | Метод | URL | Ответ | Описание | Функция |
 |---|---|---|---|---|
-| GET | `/api/methods` | 200 — `methods`, `min_time`, `max_time` | Список опубликованных методов миграции; фильтр `?min_time={min}&max_time={max}`. | `GetGrid` |
-| GET | `/api/methods/feed` | 200 — `method` с `is_liked` (`bool`) | Без параметров — первый опубликованный метод; `?id={id}` — опубликованный метод по ID; `?id={id}&next=true` — следующий после него (с переходом к первому после последнего). `is_liked` показывает лайк текущего пользователя. | `GetFeedItem` |
+| GET | `/api/methods` | 200 — `methods`, `min_time`, `max_time`, `total`, `page`, `limit` | Список опубликованных методов миграции; фильтр `?min_time={min}&max_time={max}`, пагинация `?page={page}&limit={limit}`. | `GetGrid` |
+| GET | `/api/methods/feed` | 200 — `method` с `is_liked`, `feed_position`, `feed_size` | Лента из Redis: без параметров — первая карточка сессии; `?id={id}` — опубликованный метод по ID; `?id={id}&next=true` — следующая карточка. После 100 карточек генерируется новый набор. `is_liked` показывает лайк текущего пользователя. | `GetFeedItem` |
 | GET | `/api/methods/draft` | 200 — `draft`; 404, если черновика нет | Черновик текущего пользователя. | `ShowAddMethodPage` |
 | POST | `/api/methods` | 201 — `draft`, заголовок `Location` | Создает черновик из `multipart/form-data`: `title`, `image`, `video`. | `CreateDraftMethod` |
 | PUT | `/api/methods/publish` | 200 — `method` | Публикует черновик; принимает JSON с `description`, `time_in_gb`, `reliability`. | `PublishDraftMethod` |
@@ -62,3 +62,28 @@ Swagger UI доступен по адресу `http://localhost:8081/swagger/ind
 В базе хранятся ключи медиафайлов, а сами файлы находятся в MinIO. При чтении метода миграции API формирует из ключей `image_url` и `video_url`.
 
 Новые имена файлов генерируются из случайных латинских символов и цифр. Если сохранение в БД не удалось, сервис удаляет загруженные объекты. Для карточек без медиа используются локальные `/static/images/default.svg` и `/static/videos/default.mp4`.
+
+## Пагинация и индексы
+
+`GET /api/methods` принимает `page` (по умолчанию 1) и `limit` (по умолчанию 10, максимум 100) и возвращает `total`, `page`, `limit`.
+
+Для фильтра по времени создан индекс:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_migration_methods_status_time_id
+    ON migration_methods (status, time_in_gb, id);
+```
+
+Для существующей БД примените `migrations/002_indexes.sql`. Команды `EXPLAIN ANALYZE` для сравнения с индексом и без него описаны в `docs/indexes.md`.
+
+## Генерация данных
+
+```bash
+go run ./cmd/seed
+```
+
+Скрипт доводит число опубликованных услуг до 100000, использует faker для названий и описаний, вставляет данные батчами и выполняет `ANALYZE`.
+
+## Лента в Redis
+
+Лента хранится в Redis в ключе `data-migration-backend:feed:{session}` и создаётся при первом запросе `GET /api/methods/feed`. Идентификатор сессии хранится в HttpOnly cookie `data_migration_feed_session`. В ленте 100 случайных неповторяющихся опубликованных услуг; после последней карточки создаётся новый набор. Позиция карточки возвращается в `feed_position`, размер набора — в `feed_size`.

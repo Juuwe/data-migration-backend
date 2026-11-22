@@ -13,8 +13,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	defaultPage  = 1
+	defaultLimit = 10
+	maxLimit     = 100
+)
+
 type MigrationMethodHandler struct {
-	s *service.MigrationMethodService
+	s    *service.MigrationMethodService
+	feed *service.FeedService
 }
 
 type PublishDraftRequest struct {
@@ -27,8 +34,28 @@ type LikeRequest struct {
 	Like *int `json:"like" enums:"0,1" binding:"required"`
 }
 
-func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMethodHandler {
-	return &MigrationMethodHandler{s: s}
+func NewMigrationMethodHandler(s *service.MigrationMethodService, feeds ...*service.FeedService) *MigrationMethodHandler {
+	var feedService *service.FeedService
+	if len(feeds) > 0 {
+		feedService = feeds[0]
+	}
+	return &MigrationMethodHandler{s: s, feed: feedService}
+}
+
+func pagination(c *gin.Context) (page, limit int) {
+	page = defaultPage
+	limit = defaultLimit
+
+	if value, err := strconv.Atoi(c.Query("page")); err == nil && value > 0 {
+		page = value
+	}
+	if value, err := strconv.Atoi(c.Query("limit")); err == nil && value > 0 {
+		limit = value
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	return page, limit
 }
 
 // GetGrid godoc
@@ -39,6 +66,8 @@ func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMeth
 // @Security BearerAuth
 // @Param min_time query number false "Минимальное время на 1 Гб"
 // @Param max_time query number false "Максимальное время на 1 Гб"
+// @Param page query int false "Номер страницы" default(1)
+// @Param limit query int false "Количество элементов на странице" default(10)
 // @Success 200 {object} serializer.GridResponse
 // @Failure 401 "Недействительный токен"
 // @Failure 500 "Внутренняя ошибка"
@@ -46,21 +75,24 @@ func NewMigrationMethodHandler(s *service.MigrationMethodService) *MigrationMeth
 func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 	ctx := c.Request.Context()
 	currentUserID := auth.UserID(ctx)
+	page, limit := pagination(c)
+	offset := (page - 1) * limit
 
 	minTime, errMin := strconv.ParseFloat(c.Query("min_time"), 64)
 	maxTime, errMax := strconv.ParseFloat(c.Query("max_time"), 64)
 
 	var (
 		methods []serializer.MigrationMethod
+		total   int64
 		err     error
 	)
 
 	if errMin != nil || errMax != nil || minTime < 0 || maxTime < minTime ||
 		math.IsNaN(minTime) || math.IsNaN(maxTime) || math.IsInf(minTime, 0) || math.IsInf(maxTime, 0) {
 		minTime, maxTime = 0.01, 1.00
-		methods, err = h.s.GetPublished(ctx, currentUserID)
+		methods, total, err = h.s.GetPublishedPage(ctx, currentUserID, limit, offset)
 	} else {
-		methods, err = h.s.GetPublishedByTime(ctx, minTime, maxTime, currentUserID)
+		methods, total, err = h.s.GetPublishedByTimePage(ctx, minTime, maxTime, currentUserID, limit, offset)
 	}
 
 	if err != nil {
@@ -68,13 +100,16 @@ func (h *MigrationMethodHandler) GetGrid(c *gin.Context) {
 		return
 	}
 
-	page := serializer.GridResponse{
+	response := serializer.GridResponse{
 		Methods: methods,
 		MinTime: minTime,
 		MaxTime: maxTime,
+		Total:   total,
+		Page:    page,
+		Limit:   limit,
 	}
 
-	c.JSON(http.StatusOK, page)
+	c.JSON(http.StatusOK, response)
 }
 
 // GetFeedItem godoc
@@ -95,48 +130,84 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 	idStr, hasID := c.GetQuery("id")
 	ctx := c.Request.Context()
 	currentUserID := auth.UserID(ctx)
+	next := c.Query("next") == "true"
 
 	var (
-		method serializer.MigrationMethod
-		err    error
+		method       serializer.MigrationMethod
+		methodID     int64
+		feedPosition int
+		feedSize     int
+		err          error
 	)
 
-	if !hasID {
-		if c.Query("next") == "true" {
-			c.Status(http.StatusBadRequest)
-			return
-		}
-		method, err = h.s.GetNextPublishedAfterID(ctx, 0, currentUserID)
-		if err != nil {
-			if errors.Is(err, ds.ErrMigrationMethodNotFound) {
-				c.Status(http.StatusNotFound)
-			} else {
-				c.Status(http.StatusInternalServerError)
+	if h.feed == nil {
+		// Резервный путь без Redis используется в unit-тестах.
+		if !hasID {
+			if next {
+				c.Status(http.StatusBadRequest)
+				return
 			}
-			return
+			method, err = h.s.GetNextPublishedAfterID(ctx, 0, currentUserID)
+		} else {
+			methodID, err = strconv.ParseInt(idStr, 10, 64)
+			if err != nil || methodID <= 0 {
+				c.Status(http.StatusBadRequest)
+				return
+			}
+			if next {
+				method, err = h.s.GetNextPublishedAfterID(ctx, methodID, currentUserID)
+			} else {
+				method, err = h.s.GetByID(ctx, methodID, currentUserID)
+			}
 		}
 	} else {
-		var id int64
-		id, err = strconv.ParseInt(idStr, 10, 64)
-		if err != nil || id <= 0 {
-			c.Status(http.StatusBadRequest)
+		sessionID := feedSessionID(c)
+		if sessionID == "" {
+			c.Status(http.StatusInternalServerError)
 			return
 		}
 
-		if c.Query("next") == "true" {
-			method, err = h.s.GetNextPublishedAfterID(ctx, id, currentUserID)
-		} else {
-			method, err = h.s.GetByID(ctx, id, currentUserID)
-		}
-
-		if err != nil {
-			if errors.Is(err, ds.ErrMigrationMethodNotFound) {
-				c.Status(http.StatusNotFound)
-			} else {
-				c.Status(http.StatusInternalServerError)
+		if !hasID {
+			if next {
+				c.Status(http.StatusBadRequest)
+				return
 			}
-			return
+			cursor, feedErr := h.feed.First(ctx, sessionID)
+			if feedErr != nil {
+				writeFeedError(c, feedErr)
+				return
+			}
+			methodID = cursor.MethodID
+			feedPosition = cursor.Position
+			feedSize = cursor.Size
+		} else {
+			methodID, err = strconv.ParseInt(idStr, 10, 64)
+			if err != nil || methodID <= 0 {
+				c.Status(http.StatusBadRequest)
+				return
+			}
+			if next {
+				cursor, feedErr := h.feed.Next(ctx, sessionID, methodID)
+				if feedErr != nil {
+					writeFeedError(c, feedErr)
+					return
+				}
+				methodID = cursor.MethodID
+				feedPosition = cursor.Position
+				feedSize = cursor.Size
+			}
 		}
+
+		method, err = h.s.GetByID(ctx, methodID, currentUserID)
+	}
+
+	if err != nil {
+		if errors.Is(err, ds.ErrMigrationMethodNotFound) {
+			c.Status(http.StatusNotFound)
+		} else {
+			c.Status(http.StatusInternalServerError)
+		}
+		return
 	}
 
 	isLiked, err := h.s.IsLiked(ctx, method.ID, currentUserID)
@@ -144,7 +215,22 @@ func (h *MigrationMethodHandler) GetFeedItem(c *gin.Context) {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	c.JSON(http.StatusOK, serializer.FeedResponse{Method: serializer.FeedMethod{MigrationMethod: method, IsLiked: isLiked}})
+	c.JSON(http.StatusOK, serializer.FeedResponse{
+		Method: serializer.FeedMethod{
+			MigrationMethod: method,
+			IsLiked:         isLiked,
+			FeedPosition:    feedPosition,
+			FeedSize:        feedSize,
+		},
+	})
+}
+
+func writeFeedError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrFeedEmpty) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Status(http.StatusInternalServerError)
 }
 
 // ShowAddMethodPage godoc

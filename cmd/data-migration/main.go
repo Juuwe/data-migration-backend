@@ -16,6 +16,7 @@ import (
 	"github.com/Juuwe/data-migration-backend/internal/app/service"
 	"github.com/Juuwe/data-migration-backend/internal/auth"
 	"github.com/Juuwe/data-migration-backend/internal/config"
+	"github.com/Juuwe/data-migration-backend/internal/feed"
 	"github.com/Juuwe/data-migration-backend/internal/repository"
 	"github.com/Juuwe/data-migration-backend/internal/storage"
 	"github.com/Juuwe/data-migration-backend/internal/tokenstore"
@@ -52,10 +53,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("ошибка настройки MinIO: %w", err)
 	}
+	feedStore, err := feed.New(context.Background(), cfg.RedisAddr, cfg.RedisPassword)
+	if err != nil {
+		return fmt.Errorf("ошибка настройки ленты в Redis: %w", err)
+	}
+	defer feedStore.Close()
+
 	svc := service.NewMigrationMethodService(repo, service.NewMediaService(objectStore))
 	userSvc := service.NewUserService(repo, tokens, tokenStore)
+	feedSvc := service.NewFeedService(repo, feedStore, service.DefaultFeedSize)
 
-	r := api.NewRouter(svc, userSvc)
+	r := api.NewRouter(svc, userSvc, feedSvc)
 
 	log.Printf("Сервер запущен на http://localhost:%d", cfg.WebServer.Port)
 	if err := r.Run(cfg.WebServer.Address()); err != nil {

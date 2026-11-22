@@ -90,6 +90,39 @@ func (r *repositoryStub) FindPublished(context.Context) ([]ds.MigrationMethod, e
 	return r.published, r.publishedErr
 }
 
+func (r *repositoryStub) FindPublishedPage(_ context.Context, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	if r.publishedErr != nil {
+		return nil, 0, r.publishedErr
+	}
+	return pageMethods(r.published, limit, offset), int64(len(r.published)), nil
+}
+
+func (r *repositoryStub) FindPublishedByTimePage(_ context.Context, _ float64, _ float64, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	if r.publishedErr != nil {
+		return nil, 0, r.publishedErr
+	}
+	return pageMethods(r.published, limit, offset), int64(len(r.published)), nil
+}
+
+func (r *repositoryStub) FindRandomPublishedIDs(context.Context, int) ([]int64, error) {
+	ids := make([]int64, len(r.published))
+	for i, method := range r.published {
+		ids[i] = method.ID
+	}
+	return ids, nil
+}
+
+func pageMethods(methods []ds.MigrationMethod, limit, offset int) []ds.MigrationMethod {
+	if offset >= len(methods) {
+		return []ds.MigrationMethod{}
+	}
+	end := offset + limit
+	if end > len(methods) {
+		end = len(methods)
+	}
+	return methods[offset:end]
+}
+
 func (r *repositoryStub) CountMethodLikesByID(context.Context, int64) (int, error) {
 	return r.likesCount, r.likesCountErr
 }

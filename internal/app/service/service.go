@@ -31,6 +31,9 @@ type MigrationMethodRepository interface {
 	FindDraft(ctx context.Context, creatorID int64) (ds.MigrationMethod, error)
 	FindPublishedByTime(ctx context.Context, ltime, rtime float64) ([]ds.MigrationMethod, error)
 	FindPublished(ctx context.Context) ([]ds.MigrationMethod, error)
+	FindPublishedPage(ctx context.Context, limit, offset int) ([]ds.MigrationMethod, int64, error)
+	FindPublishedByTimePage(ctx context.Context, ltime, rtime float64, limit, offset int) ([]ds.MigrationMethod, int64, error)
+	FindRandomPublishedIDs(ctx context.Context, limit int) ([]int64, error)
 
 	CountMethodLikesByID(ctx context.Context, methodID int64) (int, error)
 	CountLikesByMethodIDs(ctx context.Context, methodIDs []int64) (map[int64]int, error)
@@ -120,6 +123,19 @@ func (s *MigrationMethodService) GetPublished(ctx context.Context, currentUserID
 	return s.serializeMethodList(ctx, methods, currentUserID)
 }
 
+func (s *MigrationMethodService) GetPublishedPage(ctx context.Context, currentUserID int64, limit, offset int) ([]serializer.MigrationMethod, int64, error) {
+	methods, total, err := s.repo.FindPublishedPage(ctx, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	views, err := s.serializeMethodList(ctx, methods, currentUserID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return views, total, nil
+}
+
 func (s *MigrationMethodService) GetNextPublishedAfterID(ctx context.Context, id, currentUserID int64) (serializer.MigrationMethod, error) {
 	m, err := s.repo.FindNextPublishedAfterID(ctx, id)
 	if err != nil {
@@ -163,6 +179,19 @@ func (s *MigrationMethodService) GetPublishedByTime(ctx context.Context, minTime
 	}
 
 	return s.serializeMethodList(ctx, methods, currentUserID)
+}
+
+func (s *MigrationMethodService) GetPublishedByTimePage(ctx context.Context, minTime, maxTime float64, currentUserID int64, limit, offset int) ([]serializer.MigrationMethod, int64, error) {
+	methods, total, err := s.repo.FindPublishedByTimePage(ctx, minTime, maxTime, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	views, err := s.serializeMethodList(ctx, methods, currentUserID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return views, total, nil
 }
 
 func (s *MigrationMethodService) CreateDraftMethod(ctx context.Context, title string, creatorID int64, imageInput, videoInput MediaInput) (serializer.MigrationMethod, error) {

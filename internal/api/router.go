@@ -14,7 +14,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService) *gin.Engine {
+func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService, feedSvc *service.FeedService) *gin.Engine {
 	r := gin.Default()
 	r.MaxMultipartMemory = 8 << 20
 
@@ -27,7 +27,7 @@ func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler,
 		ginSwagger.URL("/docs/swagger.yaml")))
 
-	migrationMethodsHandler := handler.NewMigrationMethodHandler(svc)
+	migrationMethodsHandler := handler.NewMigrationMethodHandler(svc, feedSvc)
 	userHandler := handler.NewUserHandler(userSvc)
 	authenticate := userAuthenticator(userSvc)
 	optionalAuth := middleware.Auth(authenticate, false)

@@ -36,7 +36,9 @@ type MigrationMethodLike struct {
 
 type FeedMethod struct {
 	MigrationMethod
-	IsLiked bool `json:"is_liked"`
+	IsLiked      bool `json:"is_liked"`
+	FeedPosition int  `json:"feed_position,omitempty"`
+	FeedSize     int  `json:"feed_size,omitempty"`
 }
 
 func NewLike(methodID int64, isLiked bool, likesCount int) MigrationMethodLike {
@@ -47,6 +49,9 @@ type GridResponse struct {
 	Methods []MigrationMethod `json:"methods"`
 	MinTime float64           `json:"min_time"`
 	MaxTime float64           `json:"max_time"`
+	Total   int64             `json:"total"`
+	Page    int               `json:"page"`
+	Limit   int               `json:"limit"`
 }
 
 type FeedResponse struct {
@@ -71,9 +76,9 @@ type User struct {
 }
 
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type" enums:"Bearer"`
-	ExpiresIn    int64  `json:"expires_in"` // seconds
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type" enums:"Bearer"`
+	ExpiresIn   int64  `json:"expires_in"` // seconds
 }
 
 func NewUser(user ds.User) User {

@@ -114,6 +114,33 @@ func (r *jsonRepositoryStub) FindPublished(context.Context) ([]ds.MigrationMetho
 	return r.published, nil
 }
 
+func (r *jsonRepositoryStub) FindPublishedPage(_ context.Context, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	return pageSlice(r.published, limit, offset), int64(len(r.published)), nil
+}
+
+func (r *jsonRepositoryStub) FindPublishedByTimePage(_ context.Context, _ float64, _ float64, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	return pageSlice(r.published, limit, offset), int64(len(r.published)), nil
+}
+
+func (r *jsonRepositoryStub) FindRandomPublishedIDs(context.Context, int) ([]int64, error) {
+	ids := make([]int64, len(r.published))
+	for i, method := range r.published {
+		ids[i] = method.ID
+	}
+	return ids, nil
+}
+
+func pageSlice(methods []ds.MigrationMethod, limit, offset int) []ds.MigrationMethod {
+	if offset >= len(methods) {
+		return []ds.MigrationMethod{}
+	}
+	end := offset + limit
+	if end > len(methods) {
+		end = len(methods)
+	}
+	return methods[offset:end]
+}
+
 func (r *jsonRepositoryStub) FindByID(_ context.Context, id int64) (ds.MigrationMethod, error) {
 	for _, method := range r.published {
 		if method.ID == id {

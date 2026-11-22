@@ -109,6 +109,88 @@ func (r *PostgresRepository) FindPublishedByTime(ctx context.Context, ltime, rti
 	return methods, nil
 }
 
+func (r *PostgresRepository) FindPublishedPage(ctx context.Context, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	var (
+		methods []ds.MigrationMethod
+		total   int64
+	)
+
+	countQuery := r.db.WithContext(ctx).
+		Model(&ds.MigrationMethod{}).
+		Where("status = ?", ds.StatusPublished)
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count published migration methods: %w", err)
+	}
+
+	if limit <= 0 {
+		return make([]ds.MigrationMethod, 0), total, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	err := r.db.WithContext(ctx).
+		Where("status = ?", ds.StatusPublished).
+		Order("id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&methods).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("find published migration methods: %w", err)
+	}
+	return methods, total, nil
+}
+
+func (r *PostgresRepository) FindPublishedByTimePage(ctx context.Context, ltime, rtime float64, limit, offset int) ([]ds.MigrationMethod, int64, error) {
+	var (
+		methods []ds.MigrationMethod
+		total   int64
+	)
+
+	countQuery := r.db.WithContext(ctx).
+		Model(&ds.MigrationMethod{}).
+		Where("status = ? AND time_in_gb BETWEEN ? AND ?", ds.StatusPublished, ltime, rtime)
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count published migration methods by time: %w", err)
+	}
+
+	if limit <= 0 {
+		return make([]ds.MigrationMethod, 0), total, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND time_in_gb BETWEEN ? AND ?", ds.StatusPublished, ltime, rtime).
+		Order("id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&methods).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("find published migration methods by time: %w", err)
+	}
+	return methods, total, nil
+}
+
+func (r *PostgresRepository) FindRandomPublishedIDs(ctx context.Context, limit int) ([]int64, error) {
+	if limit <= 0 {
+		return make([]int64, 0), nil
+	}
+
+	var ids []int64
+	err := r.db.WithContext(ctx).
+		Model(&ds.MigrationMethod{}).
+		Where("status = ?", ds.StatusPublished).
+		Order("RANDOM()").
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("find random published migration methods: %w", err)
+	}
+	return ids, nil
+}
+
 func (r *PostgresRepository) CountMethodLikesByID(ctx context.Context, methodID int64) (int, error) {
 	var count int64
 
