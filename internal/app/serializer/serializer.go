@@ -74,7 +74,6 @@ type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type" enums:"Bearer"`
 	ExpiresIn    int64  `json:"expires_in"` // seconds
-	RefreshToken string `json:"refresh_token"`
 }
 
 func NewUser(user ds.User) User {

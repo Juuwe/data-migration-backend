@@ -1,6 +1,6 @@
 // @title Data Migration API
 // @version 1.0
-// @description API методов миграции данных. Для защищенных операций нужен JWT в заголовке Authorization: Bearer <token>. Выход отзывает предъявленные access- и refresh-токены. Ошибки возвращаются без тела ответа.
+// @description API методов миграции данных. Для защищенных операций нужен JWT в заголовке Authorization: Bearer <token>. Выход добавляет access-токен в блэклист до истечения срока. Ошибки возвращаются без тела ответа.
 // @BasePath /
 // @securityDefinitions.apikey BearerAuth
 // @in header
