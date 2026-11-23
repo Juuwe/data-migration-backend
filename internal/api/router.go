@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 
 	"github.com/Juuwe/data-migration-backend/internal/app/handler"
@@ -16,6 +17,7 @@ import (
 
 func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService) *gin.Engine {
 	r := gin.Default()
+	r.Use(corsMiddleware())
 	r.MaxMultipartMemory = 8 << 20
 
 	staticDir := "./static"
@@ -58,5 +60,20 @@ func userAuthenticator(users *service.UserService) middleware.AuthenticateFunc {
 			return nil, err
 		}
 		return auth.WithUserID(ctx, userID), nil
+	}
+}
+
+// corsMiddleware разрешает запросы из собранного Tauri-приложения,
+// которое обращается к API по IP-адресу в локальной сети.
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
 	}
 }
