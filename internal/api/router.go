@@ -44,7 +44,6 @@ func NewRouter(svc *service.MigrationMethodService, userSvc *service.UserService
 	r.POST("/api/methods/:id/like", requiredAuth, migrationMethodsHandler.SetLike)
 	r.POST("/api/users", userHandler.Register)
 	r.POST("/api/users/login", userHandler.Authenticate)
-	r.POST("/api/users/refresh", userHandler.Refresh)
 	r.POST("/api/users/logout", requiredAuth, userHandler.Logout)
 
 	return r

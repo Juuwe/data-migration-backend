@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"net/mail"
@@ -19,14 +17,10 @@ var (
 	ErrInvalidEmail        = errors.New("некорректный email")
 	ErrInvalidPassword     = errors.New("пароль должен содержать от 8 до 72 байт")
 	ErrInvalidCredentials  = errors.New("неверный email или пароль")
-	ErrInvalidRefreshToken = errors.New("недействительный refresh-токен")
 )
 
-const RefreshTokenTTL = 30 * 24 * time.Hour
-
-type TokenPair struct {
+type Token struct {
 	AccessToken  string
-	RefreshToken string
 	ExpiresIn    int64
 }
 
@@ -37,10 +31,8 @@ type UserRepository interface {
 }
 
 type TokenStore interface {
-	SaveRefreshToken(ctx context.Context, userID int64, tokenHash string, ttl time.Duration) error
-	RotateRefreshToken(ctx context.Context, oldHash, newHash string, ttl time.Duration) (int64, error)
 	IsAccessTokenBlacklisted(ctx context.Context, tokenHash string) (bool, error)
-	RevokeTokens(ctx context.Context, userID int64, accessHash, refreshHash string, accessTTL time.Duration) error
+	RevokeAccessToken(ctx context.Context, accessHash string, accessTTL time.Duration) error
 }
 
 type UserService struct {
@@ -69,77 +61,25 @@ func (s *UserService) Register(ctx context.Context, email, password string) (ds.
 	return user, nil
 }
 
-func (s *UserService) Authenticate(ctx context.Context, email, password string) (TokenPair, error) {
+func (s *UserService) Authenticate(ctx context.Context, email, password string) (Token, error) {
 	if email == "" || password == "" {
-		return TokenPair{}, ErrInvalidCredentials
+		return Token{}, ErrInvalidCredentials
 	}
 	user, err := s.repo.FindUserByEmail(ctx, strings.TrimSpace(email))
 	if errors.Is(err, ds.ErrUserNotFound) {
-		return TokenPair{}, ErrInvalidCredentials
+		return Token{}, ErrInvalidCredentials
 	}
 	if err != nil {
-		return TokenPair{}, err
+		return Token{}, err
 	}
 	if user.Password != password {
-		return TokenPair{}, ErrInvalidCredentials
+		return Token{}, ErrInvalidCredentials
 	}
 	accessToken, _, err := s.tokens.Issue(user.ID)
 	if err != nil {
-		return TokenPair{}, err
+		return Token{}, err
 	}
-	refreshToken, tokenHash, err := newRefreshToken()
-	if err != nil {
-		return TokenPair{}, err
-	}
-	if err := s.store.SaveRefreshToken(ctx, user.ID, tokenHash, RefreshTokenTTL); err != nil {
-		return TokenPair{}, err
-	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: int64(auth.TokenTTL / time.Second)}, nil
-}
-
-func (s *UserService) Refresh(ctx context.Context, token string) (TokenPair, error) {
-	oldHash, err := refreshTokenHash(token)
-	if err != nil {
-		return TokenPair{}, ErrInvalidRefreshToken
-	}
-	newToken, newHash, err := newRefreshToken()
-	if err != nil {
-		return TokenPair{}, err
-	}
-	userID, err := s.store.RotateRefreshToken(ctx, oldHash, newHash, RefreshTokenTTL)
-	if err != nil {
-		if errors.Is(err, auth.ErrRefreshTokenNotFound) {
-			return TokenPair{}, ErrInvalidRefreshToken
-		}
-		return TokenPair{}, err
-	}
-	accessToken, _, err := s.tokens.Issue(userID)
-	if err != nil {
-		return TokenPair{}, err
-	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: newToken, ExpiresIn: int64(auth.TokenTTL / time.Second)}, nil
-}
-
-func newRefreshToken() (string, string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", "", err
-	}
-	token := base64.RawURLEncoding.EncodeToString(bytes)
-	hash := sha256.Sum256(bytes)
-	return token, hex.EncodeToString(hash[:]), nil
-}
-
-func refreshTokenHash(token string) (string, error) {
-	if len(token) != 43 {
-		return "", ErrInvalidRefreshToken
-	}
-	bytes, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(bytes) != 32 || base64.RawURLEncoding.EncodeToString(bytes) != token {
-		return "", ErrInvalidRefreshToken
-	}
-	hash := sha256.Sum256(bytes)
-	return hex.EncodeToString(hash[:]), nil
+	return Token{AccessToken: accessToken, ExpiresIn: int64(auth.TokenTTL / time.Second)}, nil
 }
 
 func accessTokenHash(token string) string {
@@ -147,22 +87,12 @@ func accessTokenHash(token string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (s *UserService) Logout(ctx context.Context, accessToken, refreshToken string) error {
-	userID, expiresAt, err := s.tokens.Validate(accessToken)
+func (s *UserService) Logout(ctx context.Context, accessToken string) error {
+	_, expiresAt, err := s.tokens.Validate(accessToken)
 	if err != nil {
 		return err
 	}
-	refreshHash, err := refreshTokenHash(refreshToken)
-	if err != nil {
-		return ErrInvalidRefreshToken
-	}
-	if err := s.store.RevokeTokens(ctx, userID, accessTokenHash(accessToken), refreshHash, time.Until(expiresAt)); err != nil {
-		if errors.Is(err, auth.ErrRefreshTokenNotFound) {
-			return ErrInvalidRefreshToken
-		}
-		return err
-	}
-	return nil
+	return s.store.RevokeAccessToken(ctx, accessTokenHash(accessToken), time.Until(expiresAt))
 }
 
 func (s *UserService) UserIDFromToken(ctx context.Context, token string) (int64, error) {

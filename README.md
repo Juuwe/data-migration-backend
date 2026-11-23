@@ -16,9 +16,8 @@ Swagger UI доступен по адресу `http://localhost:8081/swagger/ind
 | DELETE | `/api/methods/{id}` | 204 — без тела | Помечает свой метод миграции как удаленный. | `SoftDeleteMethod` |
 | POST | `/api/methods/{id}/like` | 200 — `method` с `id`, `is_liked`, `likes_count` | Ставит лайк при `{"like":1}`, снимает при `{"like":0}`. | `SetLike` |
 | POST | `/api/users` | 201 — `id`, `email` | Регистрирует пользователя по `email` и `password`. | `Register` |
-| POST | `/api/users/login` | 200 — `access_token`, `token_type`, `expires_in`, `refresh_token` | Вход по `email` и `password`. | `Authenticate` |
-| POST | `/api/users/refresh` | 200 — новая пара токенов | Обновляет токены по `refresh_token`; старый одноразовый. | `Refresh` |
-| POST | `/api/users/logout` | 204 — без тела | Отзывает предъявленные access- и refresh-токены; требует Bearer и JSON с `refresh_token`. | `Logout` |
+| POST | `/api/users/login` | 200 — `access_token`, `token_type`, `expires_in` | Вход по `email` и `password`. | `Authenticate` |
+| POST | `/api/users/logout` | 204 — без тела | Добавляет access-токен в Redis-блэклист до истечения срока; требует Authorization: Bearer. | `Logout` |
 
 ## Таблицы и данные
 

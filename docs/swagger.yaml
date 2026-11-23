@@ -32,13 +32,6 @@ definitions:
     - description
     - time_in_gb
     type: object
-  handler.RefreshRequest:
-    properties:
-      refresh_token:
-        type: string
-    required:
-    - refresh_token
-    type: object
   serializer.DraftResponse:
     properties:
       draft:
@@ -130,8 +123,6 @@ definitions:
       expires_in:
         description: seconds
         type: integer
-      refresh_token:
-        type: string
       token_type:
         enum:
         - Bearer
@@ -147,8 +138,8 @@ definitions:
 info:
   contact: {}
   description: 'API методов миграции данных. Для защищенных операций нужен JWT в заголовке
-    Authorization: Bearer <token>. Выход отзывает предъявленные access- и refresh-токены.
-    Ошибки возвращаются без тела ответа.'
+    Authorization: Bearer <token>. Выход добавляет access-токен в блэклист до истечения
+    срока. Ошибки возвращаются без тела ответа.'
   title: Data Migration API
   version: "1.0"
 paths:
@@ -426,58 +417,18 @@ paths:
       - users
   /api/users/logout:
     post:
-      consumes:
-      - application/json
-      description: Добавляет access-токен в Redis-блэклист до истечения срока и отзывает
-        refresh-токен. После ответа удалите оба токена на клиенте.
-      parameters:
-      - description: Текущий refresh-токен
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handler.RefreshRequest'
+      description: Добавляет access-токен в Redis-блэклист до истечения срока действия.
+        После ответа удалите токен на клиенте.
       responses:
         "204":
           description: Без тела
-        "400":
-          description: Некорректный запрос
         "401":
-          description: Недействительный access- или refresh-токен
+          description: Недействительный access-токен
         "500":
           description: Внутренняя ошибка
       security:
       - BearerAuth: []
       summary: Выход пользователя
-      tags:
-      - users
-  /api/users/refresh:
-    post:
-      consumes:
-      - application/json
-      description: Refresh-токен одноразовый; при успешном обмене старый токен перестает
-        действовать.
-      parameters:
-      - description: Refresh-токен
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handler.RefreshRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/serializer.TokenResponse'
-        "400":
-          description: Некорректный запрос
-        "401":
-          description: Недействительный refresh-токен
-        "500":
-          description: Внутренняя ошибка
-      summary: Обновить пару токенов
       tags:
       - users
 securityDefinitions:

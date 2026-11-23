@@ -21,10 +21,6 @@ type Credentials struct {
 	Password string `json:"password" binding:"required"`
 }
 
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
-}
-
 func NewUserHandler(s *service.UserService) *UserHandler {
 	return &UserHandler{s: s}
 }
@@ -89,64 +85,26 @@ func (h *UserHandler) Authenticate(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, serializer.TokenResponse{AccessToken: tokens.AccessToken, TokenType: "Bearer", ExpiresIn: tokens.ExpiresIn, RefreshToken: tokens.RefreshToken})
-}
-
-// Refresh godoc
-// @Summary Обновить пару токенов
-// @Description Refresh-токен одноразовый; при успешном обмене старый токен перестает действовать.
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param request body RefreshRequest true "Refresh-токен"
-// @Success 200 {object} serializer.TokenResponse
-// @Failure 400 "Некорректный запрос"
-// @Failure 401 "Недействительный refresh-токен"
-// @Failure 500 "Внутренняя ошибка"
-// @Router /api/users/refresh [post]
-func (h *UserHandler) Refresh(c *gin.Context) {
-	var request RefreshRequest
-	if err := bindJSON(c, &request); err != nil || request.RefreshToken == "" {
-		c.Status(http.StatusBadRequest)
-		return
-	}
-	tokens, err := h.s.Refresh(c.Request.Context(), request.RefreshToken)
-	if err != nil {
-		if errors.Is(err, service.ErrInvalidRefreshToken) {
-			c.Status(http.StatusUnauthorized)
-		} else {
-			c.Status(http.StatusInternalServerError)
-		}
-		return
-	}
-	c.JSON(http.StatusOK, serializer.TokenResponse{AccessToken: tokens.AccessToken, TokenType: "Bearer", ExpiresIn: tokens.ExpiresIn, RefreshToken: tokens.RefreshToken})
+	c.JSON(http.StatusOK, serializer.TokenResponse{AccessToken: tokens.AccessToken, TokenType: "Bearer", ExpiresIn: tokens.ExpiresIn})
 }
 
 // Logout godoc
 // @Summary Выход пользователя
-// @Description Добавляет access-токен в Redis-блэклист до истечения срока и отзывает refresh-токен. После ответа удалите оба токена на клиенте.
+// @Description Добавляет access-токен в Redis-блэклист до истечения срока действия. После ответа удалите токен на клиенте.
 // @Tags users
-// @Accept json
 // @Security BearerAuth
-// @Param request body RefreshRequest true "Текущий refresh-токен"
 // @Success 204 "Без тела"
-// @Failure 400 "Некорректный запрос"
-// @Failure 401 "Недействительный access- или refresh-токен"
+// @Failure 401 "Недействительный access-токен"
 // @Failure 500 "Внутренняя ошибка"
 // @Router /api/users/logout [post]
 func (h *UserHandler) Logout(c *gin.Context) {
-	var request RefreshRequest
-	if err := bindJSON(c, &request); err != nil || request.RefreshToken == "" {
-		c.Status(http.StatusBadRequest)
-		return
-	}
 	parts := strings.Fields(c.GetHeader("Authorization"))
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		c.Status(http.StatusUnauthorized)
 		return
 	}
-	if err := h.s.Logout(c.Request.Context(), parts[1], request.RefreshToken); err != nil {
-		if errors.Is(err, service.ErrInvalidRefreshToken) || errors.Is(err, auth.ErrInvalidToken) {
+	if err := h.s.Logout(c.Request.Context(), parts[1]); err != nil {
+		if errors.Is(err, auth.ErrInvalidToken) {
 			c.Status(http.StatusUnauthorized)
 		} else {
 			c.Status(http.StatusInternalServerError)

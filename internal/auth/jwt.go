@@ -16,7 +16,6 @@ const TokenTTL = time.Hour
 const issuer = "data-migration-backend"
 
 var ErrInvalidToken = errors.New("invalid token")
-var ErrRefreshTokenNotFound = errors.New("refresh token not found")
 
 type Manager struct {
 	secret []byte
