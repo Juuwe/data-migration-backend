@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS migration_methods (
     creator_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT,
+    description_en VARCHAR(255),
     status VARCHAR(20) NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'deleted')),
     image_key VARCHAR(255),

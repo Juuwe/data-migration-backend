@@ -39,6 +39,7 @@ Swagger UI доступен по адресу `http://localhost:8081/swagger/ind
 | `creator_id` | `INT` | `NOT NULL`, **FK** → `users.id`, `ON DELETE RESTRICT` | Автор метода |
 | `title` | `VARCHAR(255)` | `NOT NULL`, уникальный индекс | Название |
 | `description` | `TEXT` | Может быть `NULL` | Описание |
+| `description_en` | `VARCHAR(255)` | Может быть `NULL` | Короткое английское описание (50–100 символов) для CLIP-поиска по изображению; заполняется миграцией `003_description_en.sql` и сидом |
 | `status` | `VARCHAR(20)` | `NOT NULL`, по умолчанию `draft`; только `draft`, `published`, `deleted` | Статус метода |
 | `image_key` | `VARCHAR(255)` | Может быть `NULL` | Ключ изображения в MinIO |
 | `video_key` | `VARCHAR(255)` | Может быть `NULL` | Ключ видео в MinIO |
@@ -74,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_migration_methods_status_time_id
     ON migration_methods (status, time_in_gb, id);
 ```
 
-Для существующей БД ничего делать не нужно: `migrations/002_indexes.sql` применяется автоматически при старте сервиса (файл встроен в бинарник через `go:embed`). Команды `EXPLAIN ANALYZE` для сравнения с индексом и без него описаны в `docs/indexes.md`.
+Для существующей БД ничего делать не нужно: миграции из `migrations/` (кроме `init.sql`) применяются автоматически при старте сервиса (файлы встроены в бинарник через `go:embed`): индекс `002_indexes.sql` и поле `description_en` в `003_description_en.sql`. Команды `EXPLAIN ANALYZE` для сравнения с индексом и без него описаны в `docs/indexes.md`.
 
 ## Генерация данных
 

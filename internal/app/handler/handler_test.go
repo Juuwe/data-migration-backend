@@ -276,7 +276,7 @@ func TestDraftWorkflowUsesStatusCodes(t *testing.T) {
 				t.Fatalf("PUT publish: invalid JSON: %q", response.Body.String())
 			}
 			method := body["method"]
-			if len(method) != 9 || method["id"] != float64(7) || method["title"] != "Новая услуга" ||
+			if len(method) != 10 || method["id"] != float64(7) || method["title"] != "Новая услуга" ||
 				method["description"] != "Описание" || method["time_in_gb"] != 0.25 || method["reliability"] != 0.9 {
 				t.Fatalf("PUT publish: method = %v", method)
 			}
@@ -478,7 +478,7 @@ func TestDraftAndPublishedMethodsShareCommonJSONFields(t *testing.T) {
 	router.GET("/api/methods/feed", handler.GetFeedItem)
 
 	fields := []string{
-		"id", "title", "description", "image_url", "video_url",
+		"id", "title", "description", "description_en", "image_url", "video_url",
 		"created_by_current_user", "likes_count", "time_in_gb", "reliability",
 	}
 	for _, test := range []struct {

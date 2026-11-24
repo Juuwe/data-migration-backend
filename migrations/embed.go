@@ -10,20 +10,32 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed 002_indexes.sql
+//go:embed *.sql
 var files embed.FS
 
-// Apply выполняет миграции из migrations/002_indexes.sql.
-// Миграция идемпотентна: CREATE INDEX IF NOT EXISTS и ANALYZE.
+// Apply выполняет все миграции из каталога migrations, кроме init.sql
+// (init.sql применяется отдельно при создании схемы). Миграции идемпотентны.
 func Apply(ctx context.Context, db *gorm.DB) error {
-	raw, err := files.ReadFile("002_indexes.sql")
+	entries, err := files.ReadDir(".")
 	if err != nil {
-		return fmt.Errorf("read 002_indexes.sql: %w", err)
+		return fmt.Errorf("read migrations directory: %w", err)
 	}
 
-	for _, statement := range splitStatements(string(raw)) {
-		if err := db.WithContext(ctx).Exec(statement).Error; err != nil {
-			return fmt.Errorf("execute statement %q: %w", statement, err)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name == "init.sql" {
+			continue
+		}
+
+		raw, err := files.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+
+		for _, statement := range splitStatements(string(raw)) {
+			if err := db.WithContext(ctx).Exec(statement).Error; err != nil {
+				return fmt.Errorf("execute %s statement %q: %w", name, statement, err)
+			}
 		}
 	}
 	return nil

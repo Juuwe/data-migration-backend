@@ -21,7 +21,8 @@ type MigrationMethod struct {
 	ID          int64   `gorm:"primaryKey;column:id;type:integer;autoIncrement" json:"id"`
 	CreatorID   int64   `gorm:"column:creator_id;type:integer;not null;uniqueIndex:ux_migration_methods_creator_draft,where:status = 'draft'" json:"creator_id"`
 	Title       string  `gorm:"column:title;type:varchar(255);uniqueIndex;not null" json:"title"`
-	Description *string `gorm:"column:description;type:text;" json:"description"`
+	Description   *string `gorm:"column:description;type:text;" json:"description"`
+	DescriptionEn *string `gorm:"column:description_en;type:varchar(255)" json:"description_en"`
 	Status      Status  `gorm:"column:status;type:varchar(20);not null;default:'draft'" json:"-"`
 	ImageKey    string  `gorm:"column:image_key;type:varchar(255)" json:"-"`
 	VideoKey    string  `gorm:"column:video_key;type:varchar(255)" json:"-"`
