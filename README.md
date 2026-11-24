@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_migration_methods_status_time_id
     ON migration_methods (status, time_in_gb, id);
 ```
 
-Для существующей БД примените `migrations/002_indexes.sql`. Команды `EXPLAIN ANALYZE` для сравнения с индексом и без него описаны в `docs/indexes.md`.
+Для существующей БД ничего делать не нужно: `migrations/002_indexes.sql` применяется автоматически при старте сервиса (файл встроен в бинарник через `go:embed`). Команды `EXPLAIN ANALYZE` для сравнения с индексом и без него описаны в `docs/indexes.md`.
 
 ## Генерация данных
 
@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_migration_methods_status_time_id
 go run ./cmd/seed
 ```
 
-Скрипт доводит число опубликованных услуг до 100000, использует faker для названий и описаний, вставляет данные батчами и выполняет `ANALYZE`.
+Скрипт доводит число опубликованных услуг до 100500, использует faker для названий и описаний, вставляет данные батчами и выполняет `ANALYZE`.
 
 ## Лента в Redis
 

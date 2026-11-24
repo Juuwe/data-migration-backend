@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Juuwe/data-migration-backend/internal/ds"
+	"github.com/Juuwe/data-migration-backend/migrations"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -20,6 +21,9 @@ func New(dsn string) (*PostgresRepository, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	if err := migrations.Apply(context.Background(), db); err != nil {
+		return nil, fmt.Errorf("apply indexes migration: %w", err)
 	}
 	return &PostgresRepository{db: db}, nil
 }
@@ -131,7 +135,7 @@ func (r *PostgresRepository) FindPublishedPage(ctx context.Context, limit, offse
 
 	err := r.db.WithContext(ctx).
 		Where("status = ?", ds.StatusPublished).
-		Order("id ASC").
+		Order("time_in_gb ASC, id ASC").
 		Limit(limit).
 		Offset(offset).
 		Find(&methods).Error
@@ -163,7 +167,7 @@ func (r *PostgresRepository) FindPublishedByTimePage(ctx context.Context, ltime,
 
 	err := r.db.WithContext(ctx).
 		Where("status = ? AND time_in_gb BETWEEN ? AND ?", ds.StatusPublished, ltime, rtime).
-		Order("id ASC").
+		Order("time_in_gb ASC, id ASC").
 		Limit(limit).
 		Offset(offset).
 		Find(&methods).Error

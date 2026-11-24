@@ -15,7 +15,8 @@ import (
 	"gorm.io/gorm"
 )
 
-const targetPublished = 100000
+// Нужно строго больше 100000 опубликованных услуг.
+const targetPublished = 100500
 
 var media = []struct {
 	image string
