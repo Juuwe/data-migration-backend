@@ -6,6 +6,7 @@ type MigrationMethod struct {
 	ID                   int64    `json:"id"`
 	Title                string   `json:"title"`
 	Description          *string  `json:"description"`
+	DescriptionEn        *string  `json:"description_en"`
 	ImageURL             string   `json:"image_url"`
 	VideoURL             string   `json:"video_url"`
 	CreatedByCurrentUser bool     `json:"created_by_current_user"`
@@ -19,6 +20,7 @@ func NewMethod(m ds.MigrationMethod, likesCount int, currentUserID int64, imageU
 		ID:                   m.ID,
 		Title:                m.Title,
 		Description:          m.Description,
+		DescriptionEn:        m.DescriptionEn,
 		ImageURL:             imageURL,
 		VideoURL:             videoURL,
 		CreatedByCurrentUser: currentUserID > 0 && m.CreatorID == currentUserID,
@@ -71,9 +73,9 @@ type User struct {
 }
 
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type" enums:"Bearer"`
-	ExpiresIn    int64  `json:"expires_in"` // seconds
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type" enums:"Bearer"`
+	ExpiresIn   int64  `json:"expires_in"` // seconds
 }
 
 func NewUser(user ds.User) User {

@@ -22,9 +22,11 @@ type MigrationMethod struct {
 	CreatorID   int64   `gorm:"column:creator_id;type:integer;not null;uniqueIndex:ux_migration_methods_creator_draft,where:status = 'draft'" json:"creator_id"`
 	Title       string  `gorm:"column:title;type:varchar(255);uniqueIndex;not null" json:"title"`
 	Description *string `gorm:"column:description;type:text;" json:"description"`
-	Status      Status  `gorm:"column:status;type:varchar(20);not null;default:'draft'" json:"-"`
-	ImageKey    string  `gorm:"column:image_key;type:varchar(255)" json:"-"`
-	VideoKey    string  `gorm:"column:video_key;type:varchar(255)" json:"-"`
+	// DescriptionEn — короткое (50–100 символов) описание на английском для CLIP-поиска.
+	DescriptionEn *string `gorm:"column:description_en;type:varchar(255)" json:"description_en"`
+	Status        Status  `gorm:"column:status;type:varchar(20);not null;default:'draft'" json:"-"`
+	ImageKey      string  `gorm:"column:image_key;type:varchar(255)" json:"-"`
+	VideoKey      string  `gorm:"column:video_key;type:varchar(255)" json:"-"`
 
 	TimeInGb    *float64 `gorm:"column:time_in_gb;type:numeric(10,2)" json:"time_in_gb"`
 	Reliability *float64 `gorm:"column:reliability;type:numeric(5,4)" json:"reliability"`
