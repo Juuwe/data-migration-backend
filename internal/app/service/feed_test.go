@@ -20,7 +20,8 @@ func (s *feedRepositoryStub) FindRandomPublishedIDs(context.Context, int) ([]int
 }
 
 type feedStoreStub struct {
-	ids []int64
+	ids   []int64
+	start int
 }
 
 func (s *feedStoreStub) GetIDs(context.Context, string) ([]int64, error) {
@@ -29,6 +30,15 @@ func (s *feedStoreStub) GetIDs(context.Context, string) ([]int64, error) {
 
 func (s *feedStoreStub) SetIDs(_ context.Context, _ string, ids []int64) error {
 	s.ids = append([]int64(nil), ids...)
+	return nil
+}
+
+func (s *feedStoreStub) GetStart(context.Context, string) (int, error) {
+	return s.start, nil
+}
+
+func (s *feedStoreStub) SetStart(_ context.Context, _ string, start int) error {
+	s.start = start
 	return nil
 }
 
@@ -49,15 +59,16 @@ func TestFeedServiceFirstAndNext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if next.MethodID != 2 || next.Position != 2 {
+	if next.MethodID != 2 || next.Position != 2 || next.Size != 3 {
 		t.Fatalf("Next() = %+v", next)
 	}
 
+	// После последней карточки формируется новый набор, нумерация продолжается.
 	regenerated, err := svc.Next(context.Background(), "session", 3)
 	if err != nil {
 		t.Fatalf("Next() after end error = %v", err)
 	}
-	if regenerated.MethodID != 4 || regenerated.Position != 1 {
+	if regenerated.MethodID != 4 || regenerated.Position != 4 || regenerated.Size != 6 {
 		t.Fatalf("Next() after end = %+v", regenerated)
 	}
 	if repo.calls != 2 {
@@ -65,16 +76,30 @@ func TestFeedServiceFirstAndNext(t *testing.T) {
 	}
 }
 
+func TestFeedServiceUnknownIDContinuesNumbering(t *testing.T) {
+	repo := &feedRepositoryStub{sets: [][]int64{{7, 8}}}
+	store := &feedStoreStub{ids: []int64{1, 2, 3}, start: 1}
+	svc := NewFeedService(repo, store, 3)
+
+	cursor, err := svc.Next(context.Background(), "session", 999)
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if cursor.MethodID != 7 || cursor.Position != 4 || cursor.Size != 5 {
+		t.Fatalf("Next() = %+v", cursor)
+	}
+}
+
 func TestFeedServiceReusesStoredFeed(t *testing.T) {
 	repo := &feedRepositoryStub{sets: [][]int64{{7, 8}}}
-	store := &feedStoreStub{ids: []int64{1, 2, 3}}
+	store := &feedStoreStub{ids: []int64{1, 2, 3}, start: 101}
 	svc := NewFeedService(repo, store, 3)
 
 	first, err := svc.First(context.Background(), "session")
 	if err != nil {
 		t.Fatalf("First() error = %v", err)
 	}
-	if first.MethodID != 1 || first.Size != 3 {
+	if first.MethodID != 1 || first.Position != 101 || first.Size != 103 {
 		t.Fatalf("First() = %+v", first)
 	}
 	if repo.calls != 0 {
